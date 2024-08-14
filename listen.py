@@ -1,7 +1,8 @@
 from pymavlink import mavutil
+from network import DEFAULT_CONNECTION_STRING
 
 # Start a connection using TCP to the specified IP address and port
-the_connection = mavutil.mavlink_connection('tcp:192.168.188.31:5763')
+the_connection = mavutil.mavlink_connection(DEFAULT_CONNECTION_STRING)
 
 # Wait for the first heartbeat
 #   This sets the system and component ID of remote system for the link

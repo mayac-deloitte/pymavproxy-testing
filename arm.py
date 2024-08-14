@@ -1,5 +1,6 @@
 import argparse
 from pymavlink import mavutil
+from network import DEFAULT_CONNECTION_STRING, ARM_COMMAND, DISARM_COMMAND
 
 def arm(mav_connection, arm_command):
     # Wait for the first heartbeat
@@ -19,8 +20,8 @@ def arm(mav_connection, arm_command):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Send arm/disarm commands using MAVLink protocol.')
-    parser.add_argument('-c', '--connect', help="Connection string", default='tcp:192.168.188.31:5763')
-    parser.add_argument('-a', '--arm', type=int, choices=[0, 1], help="Arm/Disarm command", default=1)
+    parser.add_argument('-c', '--connect', help="Connection string", default=DEFAULT_CONNECTION_STRING)
+    parser.add_argument('-a', '--arm', type=int, choices=[DISARM_COMMAND, ARM_COMMAND], help="Arm/Disarm command", default=ARM_COMMAND)
     
     args = parser.parse_args()
 
