@@ -1,7 +1,7 @@
 from pymavlink import mavutil
 from network import DEFAULT_CONNECTION_STRING, DEFFAULT_ALTITUDE
 
-# Start a connection listening to a UDP port
+# Start a connection listening to a TCP port
 the_connection = mavutil.mavlink_connection(DEFAULT_CONNECTION_STRING)
 
 # Wait for the first heartbeat
