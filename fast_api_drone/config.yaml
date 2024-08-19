@@ -1,0 +1,9 @@
+drones:
+  drone_1: "tcp:192.168.1.57:5762"
+  drone_2: "tcp:192.168.1.57:5772"
+  drone_3: "tcp:192.168.1.57:5782"
+
+settings:
+  min_separation_distance: 5.0  # Minimum separation distance in meters
+  default_altitude: 10  # Default altitude for all drones
+  default_side_length: 20  # Default side length for triangular formations
