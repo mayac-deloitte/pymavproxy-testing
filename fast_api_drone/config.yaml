@@ -1,7 +1,7 @@
 drones:
-  drone_1: "tcp:192.168.1.57:5762"
-  drone_2: "tcp:192.168.1.57:5772"
-  drone_3: "tcp:192.168.1.57:5782"
+  drone_1: "tcp:192.168.1.57:5763"
+  drone_2: "tcp:192.168.1.57:5773"
+  drone_3: "tcp:192.168.1.57:5783"
 
 settings:
   min_separation_distance: 5.0  # Minimum separation distance in meters
