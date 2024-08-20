@@ -34,7 +34,7 @@ class Telemetry(BaseModel):
     latitude: float
     longitude: float
     altitude: float
-    relative_altitude: float
+    relative_altitude: Optional[float] = None
     heading: Optional[float] = None
     battery_remaining: Optional[float] = None
     gps_fix: Optional[int] = None
@@ -199,32 +199,33 @@ async def get_telemetry(master: mavutil.mavlink_connection) -> Telemetry:
         request = dialect.MAVLink_request_data_stream_message(target_system=master.target_system,
                                                             target_component=master.target_component,
                                                             req_stream_id=0,
-                                                            req_message_rate=4,
+                                                            req_message_rate=10,
                                                             start_stop=1)
 
         # send request data stream message to the vehicle
         master.mav.send(request)
         
         # Wait for a new MAVLink message
-        msg = master.recv_match(type=['GLOBAL_POSITION_INT', 'SYS_STATUS', 'GPS_RAW_INT'], timeout=10)
+        msg_glboal_position = master.recv_match(type='GLOBAL_POSITION_INT', timeout=10, blocking = True)
+        msg_sys_status = master.recv_match(type='SYS_STATUS', timeout=10, blocking = True)
+        msg_gps = master.recv_match(type='GPS_RAW_INT', timeout=10, blocking = True)
 
-        if msg is None:
-            raise ValueError("No telemetry message received")
+        if msg_glboal_position is None:
+            raise ValueError("No global position telemetry message received")
+        if msg_sys_status is None:
+            raise ValueError("No system status telemetry message received")
+        if msg_gps is None:
+            raise ValueError("No raw GPS telemetry message received")
 
-        # Parse messages
-        latitude = longitude = altitude = heading = gps_fix = relative_altitude = battery_remaining = None
-        
-        if msg.get_type() == 'GLOBAL_POSITION_INT':
-            latitude = msg.lat / 1e7
-            longitude = msg.lon / 1e7
-            altitude = msg.alt / 1000.0
-            relative_altitude = msg.relative_alt / 1000.0
+        latitude = msg_glboal_position.lat / 1e7
+        longitude = msg_glboal_position.lon / 1e7
+        altitude = msg_glboal_position.alt / 1000.0
+        relative_altitude = msg_glboal_position.relative_alt / 1000.0
+        heading = msg_glboal_position.hdg / 100.0
 
-        elif msg.get_type() == 'SYS_STATUS':
-            battery_remaining = msg.battery_remaining
+        battery_remaining = msg_sys_status.battery_remaining
 
-        elif msg.get_type() == 'GPS_RAW_INT':
-            gps_fix = msg.fix_type
+        gps_fix = msg_gps.fix_type
         
         # Return telemetry data
         telemetry_data = Telemetry(
