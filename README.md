@@ -27,6 +27,10 @@ curl -X GET "http://127.0.0.1:8000/get_all_telemetry"
 ```shell
 curl -X GET "http://127.0.0.1:8000/get_telemetry/drone_1"
 ```
+9. To change the mode of the drone, e.g. change `drone_1` to `GUIDED` mode, run:
+```shell
+curl -X POST "http://localhost:8000/update_drone_mode/drone_1/GUIDED" -H "Content-Type: application/json"
+```
 
 
 ### Multi vehicle SITL using non-local GCS without PyMAVPROXY.
