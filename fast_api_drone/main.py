@@ -101,32 +101,89 @@ async def connect_all_drones():
     else:
         return {"status": "All drones connected successfully", "connected_drones": connected_drones}
 
-def set_mode_auto(master):
+def set_mode(master, flight_mode: str):
+
+    # get supported flight modes
+    flight_modes = master.mode_mapping()
+
+    if flight_mode not in flight_modes.keys():
+        print(flight_mode, "is not supported")
+        exit(1)
+
+    # create change mode message
     set_mode_message = dialect.MAVLink_command_long_message(
         target_system=master.target_system,
         target_component=master.target_component,
         command=dialect.MAV_CMD_DO_SET_MODE,
         confirmation=0,
         param1=dialect.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
-        param2="AUTO",
+        param2=flight_modes[flight_mode],
         param3=0,
         param4=0,
         param5=0,
         param6=0,
-        param7=0)
-    
+        param7=0
+    )
+
+    message = master.recv_match(type=dialect.MAVLink_heartbeat_message.msgname, blocking=True)
+    message = message.to_dict()
+    mode_id = message["custom_mode"]
+
+    # get mode name
+    flight_mode_names = list(flight_modes.keys())
+    flight_mode_ids = list(flight_modes.values())
+    flight_mode_index = flight_mode_ids.index(mode_id)
+    flight_mode_name_before = flight_mode_names[flight_mode_index]
+
+    # change flight mode
     master.mav.send(set_mode_message)
 
-def start_mission(master):
-    # Ensure that the drone has the mission and is in AUTO mode
-    master.mav.command_long_send(
-        master.target_system,
-        master.target_component,
-        mavutil.mavlink.MAV_CMD_DO_SET_MODE,
-        0,  # Confirmation
-        mavutil.mavlink.MAV_MODE_AUTO_ARMED,  # Set mode to AUTO and armed
-        0, 0, 0, 0, 0, 0
-    )
+    # do below always
+    while True:
+
+        message = master.recv_match(type=dialect.MAVLink_command_ack_message.msgname, blocking=True)
+        message = message.to_dict()
+
+        # check is the COMMAND_ACK is for DO_SET_MODE
+        if message["command"] == dialect.MAV_CMD_DO_SET_MODE:
+            if message["result"] == dialect.MAV_RESULT_ACCEPTED:
+                result = "accepted"
+            else:
+                result = "failed"
+            break
+
+    # catch HEARTBEAT message
+    message = master.recv_match(type=dialect.MAVLink_heartbeat_message.msgname, blocking=True)
+    message = message.to_dict()
+    mode_id = message["custom_mode"]
+
+    # get mode name
+    flight_mode_names = list(flight_modes.keys())
+    flight_mode_ids = list(flight_modes.values())
+    flight_mode_index = flight_mode_ids.index(mode_id)
+    flight_mode_name = flight_mode_names[flight_mode_index]
+
+    return flight_mode_name_before, flight_mode_name, result
+
+@app.post("/update_drone_mode/{drone_id}/{flight_mode}")
+async def update_drone_mode_endpoint(drone_id: str, flight_mode: str):
+    master = drone_connections.get(drone_id)
+    if not master:
+        raise HTTPException(status_code=404, detail=f"Drone with ID {drone_id} not found")
+    
+    try:
+        mode_before, mode_after, result = set_mode(master, flight_mode.upper())
+        if result == "accepted":
+            return {
+                "status": f"Mode change successful: {mode_before} -> {mode_after}"
+            }
+        else:
+            raise HTTPException(status_code=500, detail=f"Mode change failed: {mode_before} -> {mode_after}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
 def send_mission_plan_and_start(drone_id: str, waypoints):
     master = drone_connections.get(drone_id)
     if not master:
@@ -135,27 +192,45 @@ def send_mission_plan_and_start(drone_id: str, waypoints):
     # Clear existing mission items
     master.waypoint_clear_all_send()
 
-    for i, waypoint in enumerate(waypoints):
-        master.mav.mission_item_int_send(
-            master.target_system,
-            master.target_component,
-            i,  # Waypoint index
-            mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT,
-            waypoint.command,  # Command (e.g., MAV_CMD_NAV_WAYPOINT)
-            0,  # Current (set to 1 for the last waypoint to indicate the mission end)
-            1,  # Autocontinue
-            0, 0, 0, 0,  # Parameters (unused in this context)
-            int(waypoint.latitude * 1e7),  # Latitude as an integer
-            int(waypoint.longitude * 1e7),  # Longitude as an integer
-            waypoint.altitude * 1000  # Altitude in millimeters
-        )
-        time.sleep(1)  # A short delay between commands
+    # Send MISSION_COUNT message
+    master.mav.mission_count_send(
+        master.target_system,
+        master.target_component,
+        len(waypoints),
+        mavutil.mavlink.MAV_MISSION_TYPE_MISSION
+    )
 
-    # Send mission start command
-    start_mission(master)
+    # Loop until MISSION_ACK is received
+    while True:
+        msg = master.recv_match(type=['MISSION_REQUEST', 'MISSION_ACK'], blocking=True)
+        
+        if msg.get_type() == 'MISSION_REQUEST':
+            seq = msg.seq
+            waypoint = waypoints[seq]
+
+            master.mav.mission_item_int_send(
+                master.target_system,
+                master.target_component,
+                seq,
+                mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT,
+                waypoint.command,
+                0,  # Current waypoint (0 or 1)
+                1,  # Auto-continue to the next waypoint
+                0, 0, 0, 0,  # Parameters (unused in this context)
+                int(waypoint.latitude * 1e7),  # Latitude as an integer
+                int(waypoint.longitude * 1e7),  # Longitude as an integer
+                waypoint.altitude * 1000  # Altitude in millimeters
+            )
+
+        elif msg.get_type() == 'MISSION_ACK':
+            if msg.type == mavutil.mavlink.MAV_MISSION_ACCEPTED:
+                print(f"Mission upload to drone {drone_id} is successful")
+                break
+            else:
+                raise HTTPException(status_code=500, detail=f"Mission upload to drone {drone_id} failed with type {msg.type}")
 
     # Ensure the drone is in AUTO mode
-    set_mode_auto(master)
+    set_mode(master)
 
 @app.post("/upload_mission_to_location")
 async def upload_mission_to_location(request: TargetMissionRequest):
