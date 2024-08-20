@@ -50,7 +50,7 @@ class MissionPlan(BaseModel):
             raise ValueError('The waypoints list must contain at least one waypoint.')
         return v
     
-class TriangleMissionRequest(BaseModel):
+class TargetMissionRequest(BaseModel):
     center_lat: float
     center_lon: float
 
@@ -101,14 +101,14 @@ async def connect_all_drones():
     else:
         return {"status": "All drones connected successfully", "connected_drones": connected_drones}
 
-def set_mode_guided(master):
+def set_mode_auto(master):
     set_mode_message = dialect.MAVLink_command_long_message(
         target_system=master.target_system,
         target_component=master.target_component,
         command=dialect.MAV_CMD_DO_SET_MODE,
         confirmation=0,
         param1=dialect.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
-        param2="GUIDED",
+        param2="AUTO",
         param3=0,
         param4=0,
         param5=0,
@@ -117,68 +117,61 @@ def set_mode_guided(master):
     
     master.mav.send(set_mode_message)
 
-def calculate_triangle_waypoints(center_lat, center_lon, altitude, side_length, separation_distance):
-    waypoints = []
-    angle_offset = 60  # degrees
-
-    for i in range(3):
-        angle = math.radians(i * angle_offset)
-        dx = (side_length + separation_distance) * math.cos(angle) / 111139  # convert meters to degrees latitude
-        dy = (side_length + separation_distance) * math.sin(angle) / (111139 * math.cos(math.radians(center_lat)))  # adjust for longitude
-        lat = center_lat + dx
-        lon = center_lon + dy
-        waypoints.append(Waypoint(latitude=lat, longitude=lon, altitude=altitude, command=16))  # MAV_CMD_NAV_WAYPOINT
-    
-    return waypoints
-
-def send_mission_plan(drone_id: str, waypoints):
+def start_mission(master):
+    # Ensure that the drone has the mission and is in AUTO mode
+    master.mav.command_long_send(
+        master.target_system,
+        master.target_component,
+        mavutil.mavlink.MAV_CMD_DO_SET_MODE,
+        0,  # Confirmation
+        mavutil.mavlink.MAV_MODE_AUTO_ARMED,  # Set mode to AUTO and armed
+        0, 0, 0, 0, 0, 0
+    )
+def send_mission_plan_and_start(drone_id: str, waypoints):
     master = drone_connections.get(drone_id)
     if not master:
         raise HTTPException(status_code=404, detail=f"Drone with ID {drone_id} not found")
-
-    # Ensure the drone is in GUIDED mode
-    set_mode_guided(master)
 
     # Clear existing mission items
     master.waypoint_clear_all_send()
 
     for i, waypoint in enumerate(waypoints):
-        # Send each waypoint or command
-        master.mav.mission_item_send(
-            master.target_system, master.target_component, i,
+        master.mav.mission_item_int_send(
+            master.target_system,
+            master.target_component,
+            i,  # Waypoint index
             mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT,
-            waypoint.command,  # Command (e.g., MAV_CMD_NAV_WAYPOINT, MAV_CMD_NAV_TAKEOFF)
-            0, 1, 0, 0, 0, 0, waypoint.latitude, waypoint.longitude, waypoint.altitude
+            waypoint.command,  # Command (e.g., MAV_CMD_NAV_WAYPOINT)
+            0,  # Current (set to 1 for the last waypoint to indicate the mission end)
+            1,  # Autocontinue
+            0, 0, 0, 0,  # Parameters (unused in this context)
+            int(waypoint.latitude * 1e7),  # Latitude as an integer
+            int(waypoint.longitude * 1e7),  # Longitude as an integer
+            waypoint.altitude * 1000  # Altitude in millimeters
         )
         time.sleep(1)  # A short delay between commands
 
     # Send mission start command
-    master.mav.command_long_send(
-        master.target_system, master.target_component,
-        mavutil.mavlink.MAV_CMD_MISSION_START,
-        0, 0, 0, 0, 0, 0, 0, 0, 0
-    )
+    start_mission(master)
 
-@app.post("/upload_mission_triangle")
-async def upload_mission_triangle(request: TriangleMissionRequest):
+    # Ensure the drone is in AUTO mode
+    set_mode_auto(master)
 
+@app.post("/upload_mission_to_location")
+async def upload_mission_to_location(request: TargetMissionRequest):
     center_lat = request.center_lat
     center_lon = request.center_lon
     try:
-        # Calculate the triangle waypoints for each drone with safe separation
-        waypoints_1 = calculate_triangle_waypoints(center_lat, center_lon, default_altitude, default_side_length, min_separation_distance)
-        waypoints_2 = calculate_triangle_waypoints(center_lat, center_lon, default_altitude, default_side_length, min_separation_distance)
-        waypoints_3 = calculate_triangle_waypoints(center_lat, center_lon, default_altitude, default_side_length, min_separation_distance)
-        
-        # Upload mission plans for each drone
-        send_mission_plan('drone_1', waypoints_1)
-        send_mission_plan('drone_2', waypoints_2)
-        send_mission_plan('drone_3', waypoints_3)
+        # Define a single waypoint for all drones
+        waypoint = Waypoint(latitude=center_lat, longitude=center_lon, altitude=default_altitude, command=16)
 
-        return {"status": "Mission plans uploaded successfully to all drones with safe separation"}
+        # Upload the same mission plan and start the mission for each drone
+        for drone_id in drone_connections.keys():
+            send_mission_plan_and_start(drone_id, [waypoint])
+
+        return {"status": "Mission plans uploaded and started successfully for all drones"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 
 @app.get("/get_telemetry/{drone_id}", response_model=Telemetry)
 async def get_telemetry_endpoint(drone_id: str):
@@ -232,7 +225,7 @@ async def get_telemetry(master: mavutil.mavlink_connection) -> Telemetry:
             latitude=latitude if latitude is not None else 0.0,
             longitude=longitude if longitude is not None else 0.0,
             altitude=altitude if altitude is not None else 0.0,
-            relative_altitude=relative_altitude if relative_altitude is not None else 0.0,
+            relative_altitude=relative_altitude,
             heading=heading,
             battery_remaining=battery_remaining,
             gps_fix=gps_fix
