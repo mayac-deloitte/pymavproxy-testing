@@ -39,21 +39,6 @@ class Telemetry(BaseModel):
     battery_remaining: Optional[float] = None
     gps_fix: Optional[int] = None
 
-# Define a Pydantic model for the mission plan
-class MissionPlan(BaseModel):
-    drone_id: str
-    waypoints: List[Waypoint]
-
-    @field_validator('waypoints', mode='before')
-    def check_waypoints_not_empty(cls, v):
-        if len(v) < 1:
-            raise ValueError('The waypoints list must contain at least one waypoint.')
-        return v
-    
-class TargetMissionRequest(BaseModel):
-    center_lat: float
-    center_lon: float
-
 class DroneTelemetryResponse(BaseModel):
     drone_id: str
     telemetry: Optional[Telemetry] = None
@@ -140,7 +125,6 @@ def set_mode(master, flight_mode: str):
 
     # do below always
     while True:
-
         message = master.recv_match(type=dialect.MAVLink_command_ack_message.msgname, blocking=True)
         message = message.to_dict()
 
@@ -182,71 +166,184 @@ async def update_drone_mode_endpoint(drone_id: str, flight_mode: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+def set_mission_auto_mode(drone_id: str, target_locations: List[Waypoint]):
+    # create mission item list
+    # target_locations = ((-35.361297, 149.161120, 50.0),
+    #                     (-35.360780, 149.167151, 50.0),
+    #                     (-35.365115, 149.167647, 50.0),
+    #                     (-35.364419, 149.161575, 50.0))
 
+    # connect to vehicle
+    connection_string = config["drones"][drone_id]
+    master = mavutil.mavlink_connection(connection_string)  # CHANGE TO GET FROM drone_connections
+    master.wait_heartbeat()
 
-def send_mission_plan_and_start(drone_id: str, waypoints):
-    master = drone_connections.get(drone_id)
-    if not master:
-        raise HTTPException(status_code=404, detail=f"Drone with ID {drone_id} not found")
+    print("Connected to system:", master.target_system, ", component:", master.target_component)
 
-    # Clear existing mission items
-    master.waypoint_clear_all_send()
+    # create mission count message
+    message = dialect.MAVLink_mission_count_message(target_system=master.target_system,
+                                                    target_component=master.target_component,
+                                                    count=len(target_locations) + 2,
+                                                    mission_type=dialect.MAV_MISSION_TYPE_MISSION)
+    
+    master.mav.send(message)
 
-    # Send MISSION_COUNT message
-    master.mav.mission_count_send(
-        master.target_system,
-        master.target_component,
-        len(waypoints),
-        mavutil.mavlink.MAV_MISSION_TYPE_MISSION
+    # this loop will run until receive a valid MISSION_ACK message
+    while True:
+        message = master.recv_match(blocking=True)
+        message = message.to_dict()
+        if message["mavpackettype"] == dialect.MAVLink_mission_request_message.msgname:
+            if message["mission_type"] == dialect.MAV_MISSION_TYPE_MISSION:
+
+                seq = message["seq"]
+
+                # create mission item int message
+                if seq == 0:
+                    # create mission item int message that contains the home location (0th mission item)
+                    message = dialect.MAVLink_mission_item_int_message(target_system=master.target_system,
+                                                                    target_component=master.target_component,
+                                                                    seq=seq,
+                                                                    frame=dialect.MAV_FRAME_GLOBAL,
+                                                                    command=dialect.MAV_CMD_NAV_WAYPOINT,
+                                                                    current=0,
+                                                                    autocontinue=0,
+                                                                    param1=0,
+                                                                    param2=0,
+                                                                    param3=0,
+                                                                    param4=0,
+                                                                    x=0,
+                                                                    y=0,
+                                                                    z=0,
+                                                                    mission_type=dialect.MAV_MISSION_TYPE_MISSION)
+
+                # send takeoff mission item
+                elif seq == 1:
+                    # create mission item int message that contains the takeoff command
+                    message = dialect.MAVLink_mission_item_int_message(target_system=master.target_system,
+                                                                    target_component=master.target_component,
+                                                                    seq=seq,
+                                                                    frame=dialect.MAV_FRAME_GLOBAL_RELATIVE_ALT,
+                                                                    command=dialect.MAV_CMD_NAV_TAKEOFF,
+                                                                    current=0,
+                                                                    autocontinue=0,
+                                                                    param1=0,
+                                                                    param2=0,
+                                                                    param3=0,
+                                                                    param4=0,
+                                                                    x=0,
+                                                                    y=0,
+                                                                    z=target_locations[0].altitude,
+                                                                    mission_type=dialect.MAV_MISSION_TYPE_MISSION)
+
+                # send target locations to the vehicle
+                else:
+                    waypoint = target_locations[seq - 2]  # Adjust for home and takeoff locations
+                    # create mission item int message that contains a target location
+                    message = dialect.MAVLink_mission_item_int_message(target_system=master.target_system,
+                                                                    target_component=master.target_component,
+                                                                    seq=seq,
+                                                                    frame=dialect.MAV_FRAME_GLOBAL_RELATIVE_ALT,
+                                                                    command=dialect.MAV_CMD_NAV_WAYPOINT,
+                                                                    current=0,
+                                                                    autocontinue=0,
+                                                                    param1=0,
+                                                                    param2=0,
+                                                                    param3=0,
+                                                                    param4=0,
+                                                                    x=max(min(int(waypoint.latitude * 1e7), 2147483647), -2147483648), # Ensure valid range for a 32-bit signed integer using
+                                                                    y=max(min(int(waypoint.longitude * 1e7), 2147483647), -2147483648),
+                                                                    z=waypoint.altitude,
+                                                                    mission_type=dialect.MAV_MISSION_TYPE_MISSION)
+
+                # send the mission item int message to the vehicle
+                master.mav.send(message)
+
+        # check this message is MISSION_ACK
+        elif message["mavpackettype"] == dialect.MAVLink_mission_ack_message.msgname:
+            if message["mission_type"] == dialect.MAV_MISSION_TYPE_MISSION and \
+                    message["type"] == dialect.MAV_MISSION_ACCEPTED:
+                print("Mission upload is successful")
+                break
+
+    # desired flight mode
+    FLIGHT_MODE = "AUTO"
+    flight_modes = master.mode_mapping()
+    if FLIGHT_MODE not in flight_modes.keys():
+        print(FLIGHT_MODE, "is not supported")
+        exit(1)
+
+    # create change mode message
+    set_mode_message = dialect.MAVLink_command_long_message(
+        target_system=master.target_system,
+        target_component=master.target_component,
+        command=dialect.MAV_CMD_DO_SET_MODE,
+        confirmation=0,
+        param1=dialect.MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
+        param2=flight_modes[FLIGHT_MODE],
+        param3=0,
+        param4=0,
+        param5=0,
+        param6=0,
+        param7=0
     )
 
-    # Loop until MISSION_ACK is received
+    # inform user
+    print("Connected to system:", master.target_system, ", component:", master.target_component)
+
+    message = master.recv_match(type=dialect.MAVLink_heartbeat_message.msgname, blocking=True)
+    message = message.to_dict()
+    mode_id = message["custom_mode"]
+
+    # get mode name
+    flight_mode_names = list(flight_modes.keys())
+    flight_mode_ids = list(flight_modes.values())
+    flight_mode_index = flight_mode_ids.index(mode_id)
+    flight_mode_name = flight_mode_names[flight_mode_index]
+
+    # print mode name
+    print("Mode name before:", flight_mode_name)
+
+    # change flight mode
+    master.mav.send(set_mode_message)
+
+    # do below always
     while True:
-        msg = master.recv_match(type=['MISSION_REQUEST', 'MISSION_ACK'], blocking=True)
-        
-        if msg.get_type() == 'MISSION_REQUEST':
-            seq = msg.seq
-            waypoint = waypoints[seq]
-
-            master.mav.mission_item_int_send(
-                master.target_system,
-                master.target_component,
-                seq,
-                mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT,
-                waypoint.command,
-                0,  # Current waypoint (0 or 1)
-                1,  # Auto-continue to the next waypoint
-                0, 0, 0, 0,  # Parameters (unused in this context)
-                int(waypoint.latitude * 1e7),  # Latitude as an integer
-                int(waypoint.longitude * 1e7),  # Longitude as an integer
-                waypoint.altitude * 1000  # Altitude in millimeters
-            )
-
-        elif msg.get_type() == 'MISSION_ACK':
-            if msg.type == mavutil.mavlink.MAV_MISSION_ACCEPTED:
-                print(f"Mission upload to drone {drone_id} is successful")
-                break
+        message = master.recv_match(type=dialect.MAVLink_command_ack_message.msgname, blocking=True)
+        message = message.to_dict()
+        if message["command"] == dialect.MAV_CMD_DO_SET_MODE:
+            if message["result"] == dialect.MAV_RESULT_ACCEPTED:
+                print("Changing mode to", FLIGHT_MODE, "accepted from the vehicle")
             else:
-                raise HTTPException(status_code=500, detail=f"Mission upload to drone {drone_id} failed with type {msg.type}")
+                print("Changing mode to", FLIGHT_MODE, "failed")
+            break
 
-    # Ensure the drone is in AUTO mode
-    set_mode(master)
+    message = master.recv_match(type=dialect.MAVLink_heartbeat_message.msgname, blocking=True)
+    message = message.to_dict()
+    mode_id = message["custom_mode"]
 
-@app.post("/upload_mission_to_location")
-async def upload_mission_to_location(request: TargetMissionRequest):
-    center_lat = request.center_lat
-    center_lon = request.center_lon
+    # get mode name
+    flight_mode_names = list(flight_modes.keys())
+    flight_mode_ids = list(flight_modes.values())
+    flight_mode_index = flight_mode_ids.index(mode_id)
+    flight_mode_name = flight_mode_names[flight_mode_index]
+
+    # print mode name
+    print("Mode name after:", flight_mode_name)
+
+@app.post("/set_mission_auto_mode/{drone_id}")
+async def set_mission_auto_mode_endpoint(drone_id: str, mission_name: str):
     try:
-        # Define a single waypoint for all drones
-        waypoint = Waypoint(latitude=center_lat, longitude=center_lon, altitude=default_altitude, command=16)
-
-        # Upload the same mission plan and start the mission for each drone
-        for drone_id in drone_connections.keys():
-            send_mission_plan_and_start(drone_id, [waypoint])
-
-        return {"status": "Mission plans uploaded and started successfully for all drones"}
+        # Load the waypoints for the specified mission from the config
+        if mission_name not in config["waypoints"]:
+            raise HTTPException(status_code=404, detail=f"Mission '{mission_name}' not found in config")
+        
+        mission_waypoints = [Waypoint(**wp) for wp in config["waypoints"][mission_name]]
+        
+        # Set the mission auto mode with the loaded waypoints
+        set_mission_auto_mode(drone_id, mission_waypoints)
+        return {"status": f"Mission '{mission_name}' auto mode set successfully for drone '{drone_id}'"}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to set mission auto mode: {str(e)}")
 
 @app.get("/get_telemetry/{drone_id}", response_model=Telemetry)
 async def get_telemetry_endpoint(drone_id: str):
