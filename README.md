@@ -31,7 +31,7 @@ curl -X GET "http://127.0.0.1:8000/get_telemetry/drone_1"
 ```shell
 curl -X POST "http://localhost:8000/update_drone_mode/drone_1/GUIDED" -H "Content-Type: application/json"
 ```
-10. To set a mission for a drone (in AUTO mode) e.g set `mission_1` (waypoints specified in `config.yaml`) for `drone_1` , run:
+10. To set a mission for a drone (in AUTO mode) without requiring step 1-9 e.g set `mission_1` (waypoints specified in `config.yaml`) for `drone_1`, run:
 ```shell
 curl -X POST "http://localhost:8000/set_mission_auto_mode/drone_1?mission_name=mission_1"
 ```
