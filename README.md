@@ -1,6 +1,6 @@
 # pymavproxy-testing
 
-### FastAPI for Drone Swarm Communication
+### FastAPI for Drone Swarm Using Non-Local Mutli-Vehicle SITL.
 1. Get inside the `/fast_api_drone` folder.
 2. Install all neccessary packages, using:
 ```shell
@@ -35,8 +35,3 @@ curl -X POST "http://localhost:8000/update_drone_mode/drone_1/GUIDED" -H "Conten
 ```shell
 curl -X POST "http://localhost:8000/set_mission_auto_mode/drone_1?mission_name=mission_1"
 ```
-
-### Multi vehicle SITL using non-local GCS without PyMAVPROXY.
-1. Get inside the `/tutorials` folder.
-2. Install all neccessary packages, using:
-3. Specifify your network configuration in `network.py`.
