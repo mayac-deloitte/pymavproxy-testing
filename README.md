@@ -6,7 +6,7 @@
 ```shell
 pip install -r requirements.txt
 ```
-3. Specifify network configurations in `config.yaml`.
+3. Specifify network configurations, default flight values & mission waypoints in `config.yaml`.
 4. To start the app, run:
 ```shell
 python3 -m uvicorn main:app --reload
@@ -27,7 +27,14 @@ curl -X GET "http://127.0.0.1:8000/get_all_telemetry"
 ```shell
 curl -X GET "http://127.0.0.1:8000/get_telemetry/drone_1"
 ```
-
+9. To change the mode of the drone, e.g. change `drone_1` to `GUIDED` mode, run:
+```shell
+curl -X POST "http://localhost:8000/update_drone_mode/drone_1/GUIDED" -H "Content-Type: application/json"
+```
+10. To set a mission for a drone (in AUTO mode) e.g set `mission_1` (waypoints specified in `config.yaml`) for `drone_1` , run:
+```shell
+curl -X POST "http://localhost:8000/set_mission_auto_mode/drone_1?mission_name=mission_1"
+```
 
 ### Multi vehicle SITL using non-local GCS without PyMAVPROXY.
 1. Get inside the `/tutorials` folder.
