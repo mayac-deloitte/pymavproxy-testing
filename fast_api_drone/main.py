@@ -317,6 +317,30 @@ def set_mission(master, target_locations: List[Waypoint]):
     # print mode name
     print("Mode name after:", flight_mode_name)
 
+    # Create and send PARAM_SET message to set AUTO_OPTIONS to 7
+    PARAM_NAME = "AUTO_OPTIONS"
+
+    parameter_set_message = dialect.MAVLink_param_set_message(
+        target_system=master.target_system,
+        target_component=master.target_component,
+        param_id=PARAM_NAME.encode("utf-8"),  # Encode to bytes as required by MAVLink
+        param_value=int(7),  # Set AUTO_OPTIONS to 7
+        param_type=dialect.MAV_PARAM_TYPE_REAL32
+    )
+
+    master.mav.send(parameter_set_message)
+    print(f"Sent request to set {PARAM_NAME} to 7")
+
+    # Verify that the parameter was set correctly
+    while True:
+        # Receive PARAM_VALUE messages
+        message = master.recv_match(type="PARAM_VALUE", blocking=True).to_dict()
+
+        # Check if the parameter is AUTO_OPTIONS
+        if message["param_id"].strip('\x00') == PARAM_NAME:  # Strip null characters
+            print(f"{message['param_id']} = {message['param_value']}")
+            break
+
     # vehicle arm message
     vehicle_arm_message = dialect.MAVLink_command_long_message(
         target_system=master.target_system,
