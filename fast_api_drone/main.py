@@ -166,21 +166,8 @@ async def update_drone_mode_endpoint(drone_id: str, flight_mode: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-def set_mission_auto_mode(drone_id: str, target_locations: List[Waypoint]):
-    # create mission item list
-    # target_locations = ((-35.361297, 149.161120, 50.0),
-    #                     (-35.360780, 149.167151, 50.0),
-    #                     (-35.365115, 149.167647, 50.0),
-    #                     (-35.364419, 149.161575, 50.0))
+def set_mission(master, target_locations: List[Waypoint]):
 
-    # connect to vehicle
-    connection_string = config["drones"][drone_id]
-    master = mavutil.mavlink_connection(connection_string)  # CHANGE TO GET FROM drone_connections
-    master.wait_heartbeat()
-
-    print("Connected to system:", master.target_system, ", component:", master.target_component)
-
-    # create mission count message
     message = dialect.MAVLink_mission_count_message(target_system=master.target_system,
                                                     target_component=master.target_component,
                                                     count=len(target_locations) + 2,
@@ -330,33 +317,61 @@ def set_mission_auto_mode(drone_id: str, target_locations: List[Waypoint]):
     # print mode name
     print("Mode name after:", flight_mode_name)
 
-@app.post("/set_mission_auto_mode/{drone_id}")
-async def set_mission_auto_mode_endpoint(drone_id: str, mission_name: str):
+    # vehicle arm message
+    vehicle_arm_message = dialect.MAVLink_command_long_message(
+        target_system=master.target_system,
+        target_component=master.target_component,
+        command=dialect.MAV_CMD_COMPONENT_ARM_DISARM,
+        confirmation=0,
+        param1=1, # VEHICLE_ARM
+        param2=0,
+        param3=0,
+        param4=0,
+        param5=0,
+        param6=0,
+        param7=0
+    )
+
+    # Attempt to arm the vehicle
+    while True:
+        print("Attempting to arm the vehicle...")
+        master.mav.send(vehicle_arm_message)
+        ack_message = master.recv_match(type=dialect.MAVLink_command_ack_message.msgname, blocking=True)
+        ack_message = ack_message.to_dict()
+
+        # Check if the arm command was accepted
+        if ack_message["result"] == dialect.MAV_RESULT_ACCEPTED and ack_message["command"] == dialect.MAV_CMD_COMPONENT_ARM_DISARM:
+            print("Arm command accepted, waiting for the vehicle to be armed...")
+
+            # Monitor the heartbeat for arming status
+            while True:
+                heartbeat = master.recv_match(type=dialect.MAVLink_heartbeat_message.msgname, blocking=True)
+                heartbeat = heartbeat.to_dict()
+
+                # Check if the vehicle is armed
+                armed = heartbeat["base_mode"] & dialect.MAV_MODE_FLAG_SAFETY_ARMED
+                if armed:
+                    print("Vehicle is armed!")
+                    return  # Exit the function once the vehicle is armed
+        else:
+            print("Failed to arm the vehicle. Retrying...")
+
+        time.sleep(10)
+
+@app.post("/set_mission/{drone_id}")
+async def set_mission_endpoint(drone_id: str, mission_name: str):
     try:
         # Load the waypoints for the specified mission from the config
         if mission_name not in config["waypoints"]:
             raise HTTPException(status_code=404, detail=f"Mission '{mission_name}' not found in config")
         
         mission_waypoints = [Waypoint(**wp) for wp in config["waypoints"][mission_name]]
-        
-        # Set the mission auto mode with the loaded waypoints
-        set_mission_auto_mode(drone_id, mission_waypoints)
-        return {"status": f"Mission '{mission_name}' auto mode set successfully for drone '{drone_id}'"}
+        master = drone_connections.get(drone_id)
+        set_mission(master, mission_waypoints)
+        return {"status": f"Mission '{mission_name}' auto mode set successfully for drone '{drone_id}' and is armed"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to set mission auto mode: {str(e)}")
 
-@app.get("/get_telemetry/{drone_id}", response_model=Telemetry)
-async def get_telemetry_endpoint(drone_id: str):
-    master = drone_connections.get(drone_id)
-    if not master:
-        raise HTTPException(status_code=404, detail=f"Drone with ID {drone_id} not found")
-    
-    try:
-        telemetry = await get_telemetry(master)
-        return telemetry
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    
 # Define the get_telemetry function here
 async def get_telemetry(master: mavutil.mavlink_connection) -> Telemetry:
     try:
@@ -408,6 +423,18 @@ async def get_telemetry(master: mavutil.mavlink_connection) -> Telemetry:
         print(f"Error retrieving telemetry data: {e}")
         raise
 
+@app.get("/get_telemetry/{drone_id}", response_model=Telemetry)
+async def get_telemetry_endpoint(drone_id: str):
+    master = drone_connections.get(drone_id)
+    if not master:
+        raise HTTPException(status_code=404, detail=f"Drone with ID {drone_id} not found")
+    
+    try:
+        telemetry = await get_telemetry(master)
+        return telemetry
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
 @app.get("/get_all_telemetry", response_model=List[DroneTelemetryResponse])
 async def get_all_telemetry():
     all_telemetry = []
