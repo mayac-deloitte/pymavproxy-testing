@@ -1,6 +1,10 @@
 # pymavproxy-testing
 
 ### FastAPI for Drone Swarm Using Non-Local Mutli-Vehicle SITL.
+A. To start the SITL drone swarm simulation (X = number of drones), run the following in `ArduPilot/ArduCopter`:
+```shell
+sim_vehicle.py -v copter --count=X --auto-sysid --console  --map 
+```
 1. Get inside the `/fast_api_drone` folder.
 2. Install all neccessary packages, using:
 ```shell
