@@ -47,8 +47,15 @@ curl -X POST "http://localhost:8000/set_mission_all_drones/mission_1"
 ```shell
 curl -X POST "http://localhost:8000/set_fence/drone_1"
 ```
-13. To enable/disable a fence ("DISABLE", "ENABLE" or "DISABLE_FLOOR_ONLY") for a specific drone  e.g  enable the fence for `drone_1`, run:
+13. To set a fence for all drones, run:
+```shell
+curl -X POST "http://localhost:8000/set_fence_all_drones"
+```
+14. To enable/disable a fence ("DISABLE", "ENABLE" or "DISABLE_FLOOR_ONLY") for a specific drone  e.g  enable the fence for `drone_1`, run:
 ```shell
 curl -X POST "http://localhost:8000/enable_fence/drone_1" -H "Content-Type: application/json" -d '{"fence_enable": "ENABLE"}'
-
+```
+15. To enable/disable a fence for all drones  e.g  disable the fence for all drones, run:
+```shell
+curl -X POST "http://localhost:8000/enable_fence_all_drones" -H "Content-Type: application/json" -d '{"fence_enable": "DISABLE"}'
 ```

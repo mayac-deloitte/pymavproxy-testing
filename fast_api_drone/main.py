@@ -9,9 +9,6 @@ import pymavlink.dialects.v20.all as dialect
 
 app = FastAPI()
 
-class ConnectDroneRequest(BaseModel):
-    drone_id: str
-
 # Load configuration from YAML
 with open("config.yaml", "r") as config_file:
     config = yaml.safe_load(config_file)
@@ -39,6 +36,9 @@ class DroneTelemetryResponse(BaseModel):
     drone_id: str
     telemetry: Optional[Telemetry] = None
     error: Optional[str] = None
+
+class ConnectDroneRequest(BaseModel):
+    drone_id: str
 
 class FenceEnableRequest(BaseModel):
     fence_enable: str
@@ -566,9 +566,36 @@ async def set_fence_endpoint(drone_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to set geofence: {str(e)}")
 
+@app.post("/set_fence_all_drones")
+async def set_fence_all_drones():
+    successful_drones = []
+    failed_drones = []
+
+    if "fence" not in config or "coordinates" not in config["fence"]:
+        raise HTTPException(status_code=404, detail="Fence coordinates not found in config file")
+    
+    fence_coordinates = config["fence"]["coordinates"]
+
+    for drone_id, master in drone_connections.items():
+        try:
+            await set_fence(master, fence_coordinates)
+            successful_drones.append(drone_id)
+            await asyncio.sleep(1)
+        except Exception as e:
+            failed_drones.append({"drone_id": drone_id, "error": str(e)})
+
+    if failed_drones:
+        return {
+            "status": "Some drones failed to set the fence",
+            "successful_drones": successful_drones,
+            "failed_drones": failed_drones
+        }
+    else:
+        return {"status": "Fence set successfully for all drones", "successful_drones": successful_drones}
+
 @app.post("/enable_fence/{drone_id}")
 async def enable_fence_endpoint(drone_id: str, request: FenceEnableRequest):
-    
+
     fence_enable_definition = {
         "DISABLE": 0,
         "ENABLE": 1,
@@ -601,7 +628,57 @@ async def enable_fence_endpoint(drone_id: str, request: FenceEnableRequest):
         return {"status": f"Fence {fence_enable} command sent to the drone '{drone_id}' successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to send fence command: {str(e)}")
-    
+
+@app.post("/enable_fence_all_drones")
+async def enable_fence_all_drones(request: FenceEnableRequest):
+    """
+    Enable the fence for all drones with the specified mode (ENABLE, DISABLE, DISABLE_FLOOR_ONLY).
+    """
+    fence_enable_definition = {
+        "DISABLE": 0,
+        "ENABLE": 1,
+        "DISABLE_FLOOR_ONLY": 2
+    }
+
+    fence_enable = request.fence_enable.upper()
+
+    if fence_enable not in fence_enable_definition:
+        raise HTTPException(status_code=400, detail="Unsupported fence enable mode")
+
+    successful_drones = []
+    failed_drones = []
+
+    for drone_id, master in drone_connections.items():
+        try:
+            message = dialect.MAVLink_command_long_message(
+                target_system=master.target_system,
+                target_component=master.target_component,
+                command=dialect.MAV_CMD_DO_FENCE_ENABLE,
+                confirmation=0,
+                param1=fence_enable_definition[fence_enable],
+                param2=0,
+                param3=0,
+                param4=0,
+                param5=0,
+                param6=0,
+                param7=0
+            )
+            master.mav.send(message)
+            successful_drones.append(drone_id)
+            await asyncio.sleep(1)
+
+        except Exception as e:
+            failed_drones.append({"drone_id": drone_id, "error": str(e)})
+
+    if failed_drones:
+        return {
+            "status": "Some drones failed to enable the fence",
+            "successful_drones": successful_drones,
+            "failed_drones": failed_drones
+        }
+    else:
+        return {"status": "Fence enabled successfully for all drones", "successful_drones": successful_drones}
+
 async def get_telemetry(master: mavutil.mavlink_connection) -> Telemetry:
     try:
         # create request data stream message
