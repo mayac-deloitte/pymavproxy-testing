@@ -568,7 +568,7 @@ async def set_fence_endpoint(drone_id: str):
 
 @app.post("/enable_fence/{drone_id}")
 async def enable_fence_endpoint(drone_id: str, request: FenceEnableRequest):
-
+    
     fence_enable_definition = {
         "DISABLE": 0,
         "ENABLE": 1,
@@ -601,42 +601,7 @@ async def enable_fence_endpoint(drone_id: str, request: FenceEnableRequest):
         return {"status": f"Fence {fence_enable} command sent to the drone '{drone_id}' successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to send fence command: {str(e)}")
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
-
-def fence_enable(master):
-    # fence enable definition
-    fence_enable_definition = {"DISABLE": 0,
-                            "ENABLE": 1,
-                            "DISABLE_FLOOR_ONLY": 2}
-
-    # get the first argument
-    fence_enable = sys.argv[1].upper()
-
-    if fence_enable in fence_enable_definition.keys():
-        print("Sending FENCE {0} to the vehicle".format(fence_enable))
-    else:
-        print("Not supported operation")
-        sys.exit()
-
-    # create the message
-    message = dialect.MAVLink_command_long_message(target_system=master.target_system,
-                                                target_component=master.target_component,
-                                                command=dialect.MAV_CMD_DO_FENCE_ENABLE,
-                                                confirmation=0,
-                                                param1=fence_enable_definition[fence_enable],
-                                                param2=0,
-                                                param3=0,
-                                                param4=0,
-                                                param5=0,
-                                                param6=0,
-                                                param7=0)
-
-    # send the message to the vehicle
-    master.mav.send(message)
-
+    
 async def get_telemetry(master: mavutil.mavlink_connection) -> Telemetry:
     try:
         # create request data stream message
