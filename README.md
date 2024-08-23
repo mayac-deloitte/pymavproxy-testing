@@ -39,3 +39,7 @@ curl -X POST "http://localhost:8000/update_drone_mode/drone_1/GUIDED" -H "Conten
 ```shell
 curl -X POST "http://localhost:8000/set_mission/drone_1?mission_name=mission_1"
 ```
+11. To set the same mission for all drones e.g  `mission_1`, run:
+```shell
+curl -X POST "http://localhost:8000/set_mission_all_drones/mission_1"
+```

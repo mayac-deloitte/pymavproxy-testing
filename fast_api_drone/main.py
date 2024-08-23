@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, field_validator
 from pymavlink import mavutil
 import time
-import math
+import asyncio
 import yaml
 from typing import List, Optional
 import pymavlink.dialects.v20.all as dialect
@@ -395,6 +395,36 @@ async def set_mission_endpoint(drone_id: str, mission_name: str):
         return {"status": f"Mission '{mission_name}' auto mode set successfully for drone '{drone_id}' and is armed"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to set mission auto mode: {str(e)}")
+
+@app.post("/set_mission_all_drones/{mission_name}")
+async def set_mission_all_drones_endpoint(mission_name: str):
+    successful_drones = []
+    failed_drones = []
+
+    for drone_id, master in drone_connections.items():
+        try:
+            # Load the waypoints for the specified mission from the config
+            if mission_name not in config["waypoints"]:
+                raise HTTPException(status_code=404, detail=f"Mission '{mission_name}' not found in config")
+            
+            mission_waypoints = [Waypoint(**wp) for wp in config["waypoints"][mission_name]]
+            set_mission(master, mission_waypoints)
+            successful_drones.append(drone_id)
+
+            # Add a delay between missions
+            await asyncio.sleep(5)
+
+        except Exception as e:
+            failed_drones.append({"drone_id": drone_id, "error": str(e)})
+
+    if failed_drones:
+        return {
+            "status": "Some drones failed to set the mission",
+            "successful_drones": successful_drones,
+            "failed_drones": failed_drones
+        }
+    else:
+        return {"status": "Mission set successfully for all drones", "successful_drones": successful_drones}
 
 # Define the get_telemetry function here
 async def get_telemetry(master: mavutil.mavlink_connection) -> Telemetry:
