@@ -43,3 +43,12 @@ curl -X POST "http://localhost:8000/set_mission/drone_1?mission_name=mission_1"
 ```shell
 curl -X POST "http://localhost:8000/set_mission_all_drones/mission_1"
 ```
+12. To set a fence for a specific drone (specified in `config.yaml`) e.g  `drone_1`, run:
+```shell
+curl -X POST "http://localhost:8000/set_fence/drone_1"
+```
+13. To enable/disable a fence ("DISABLE", "ENABLE" or "DISABLE_FLOOR_ONLY") for a specific drone  e.g  enable the fence for `drone_1`, run:
+```shell
+curl -X POST "http://localhost:8000/enable_fence/drone_1" -H "Content-Type: application/json" -d '{"fence_enable": "ENABLE"}'
+
+```

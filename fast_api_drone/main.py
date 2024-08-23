@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel
 from pymavlink import mavutil
 import time
 import asyncio
@@ -18,18 +18,14 @@ with open("config.yaml", "r") as config_file:
 
 # Access the configuration
 drone_connections = {}
-min_separation_distance = config["settings"]["min_separation_distance"]
-default_altitude = config["settings"]["default_altitude"]
-default_side_length = config["settings"]["default_side_length"]
+separation_time= config["settings"]["separation_time"]
 
-# Define a Pydantic model for a single waypoint
 class Waypoint(BaseModel):
     latitude: float
     longitude: float
     altitude: float
     command: int  # MAVLink command (e.g., MAV_CMD_NAV_WAYPOINT, MAV_CMD_NAV_TAKEOFF)
 
-# Define a Pydantic model for telemetry data
 class Telemetry(BaseModel):
     latitude: float
     longitude: float
@@ -43,6 +39,9 @@ class DroneTelemetryResponse(BaseModel):
     drone_id: str
     telemetry: Optional[Telemetry] = None
     error: Optional[str] = None
+
+class FenceEnableRequest(BaseModel):
+    fence_enable: str
 
 @app.post("/connect_drone")
 async def connect_drone(request: ConnectDroneRequest):
@@ -166,7 +165,7 @@ async def update_drone_mode_endpoint(drone_id: str, flight_mode: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-def set_mission(master, target_locations: List[Waypoint]):
+def set_mission_and_start(master, target_locations: List[Waypoint]):
 
     message = dialect.MAVLink_mission_count_message(target_system=master.target_system,
                                                     target_component=master.target_component,
@@ -391,7 +390,7 @@ async def set_mission_endpoint(drone_id: str, mission_name: str):
         
         mission_waypoints = [Waypoint(**wp) for wp in config["waypoints"][mission_name]]
         master = drone_connections.get(drone_id)
-        set_mission(master, mission_waypoints)
+        set_mission_and_start(master, mission_waypoints)
         return {"status": f"Mission '{mission_name}' auto mode set successfully for drone '{drone_id}' and is armed"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to set mission auto mode: {str(e)}")
@@ -408,11 +407,11 @@ async def set_mission_all_drones_endpoint(mission_name: str):
                 raise HTTPException(status_code=404, detail=f"Mission '{mission_name}' not found in config")
             
             mission_waypoints = [Waypoint(**wp) for wp in config["waypoints"][mission_name]]
-            set_mission(master, mission_waypoints)
+            set_mission_and_start(master, mission_waypoints)
             successful_drones.append(drone_id)
 
             # Add a delay between missions
-            await asyncio.sleep(5)
+            await asyncio.sleep(separation_time)
 
         except Exception as e:
             failed_drones.append({"drone_id": drone_id, "error": str(e)})
@@ -426,7 +425,218 @@ async def set_mission_all_drones_endpoint(mission_name: str):
     else:
         return {"status": "Mission set successfully for all drones", "successful_drones": successful_drones}
 
-# Define the get_telemetry function here
+async def set_fence(master, fence_coordinates: List[List[float]]):
+
+    # introduce FENCE_TOTAL and FENCE_ACTION as byte array and do not use parameter index
+    FENCE_TOTAL = "FENCE_TOTAL".encode(encoding="utf-8")
+    FENCE_ACTION = "FENCE_ACTION".encode(encoding="utf8")
+    PARAM_INDEX = -1
+
+    message = dialect.MAVLink_param_request_read_message(target_system=master.target_system,
+                                                        target_component=master.target_component,
+                                                        param_id=FENCE_ACTION,
+                                                        param_index=PARAM_INDEX)
+    master.mav.send(message)
+
+    while True:
+        message = master.recv_match(type=dialect.MAVLink_param_value_message.msgname,
+                                    blocking=True)
+        message = message.to_dict()
+        if message["param_id"] == "FENCE_ACTION":
+            fence_action_original = int(message["param_value"])
+            break
+
+    print("FENCE_ACTION parameter original:", fence_action_original)
+
+    while True:
+        message = dialect.MAVLink_param_set_message(target_system=master.target_system,
+                                                    target_component=master.target_component,
+                                                    param_id=FENCE_ACTION,
+                                                    param_value=dialect.FENCE_ACTION_NONE,
+                                                    param_type=dialect.MAV_PARAM_TYPE_REAL32)
+        master.mav.send(message)
+        message = master.recv_match(type=dialect.MAVLink_param_value_message.msgname,
+                                    blocking=True)
+        message = message.to_dict()
+        if message["param_id"] == "FENCE_ACTION":
+            if int(message["param_value"]) == dialect.FENCE_ACTION_NONE:
+                print("FENCE_ACTION reset to 0 successfully")
+                break
+            else:
+                print("Failed to reset FENCE_ACTION to 0, trying again")
+
+    while True:
+        message = dialect.MAVLink_param_set_message(target_system=master.target_system,
+                                                    target_component=master.target_component,
+                                                    param_id=FENCE_TOTAL,
+                                                    param_value=0,
+                                                    param_type=dialect.MAV_PARAM_TYPE_REAL32)
+        master.mav.send(message)
+        message = master.recv_match(type=dialect.MAVLink_param_value_message.msgname,
+                                    blocking=True)
+        message = message.to_dict()
+        if message["param_id"] == "FENCE_TOTAL":
+            if int(message["param_value"]) == 0:
+                print("FENCE_TOTAL reset to 0 successfully")
+                break
+            else:
+                print("Failed to reset FENCE_TOTAL to 0")
+
+    while True:
+        message = dialect.MAVLink_param_set_message(target_system=master.target_system,
+                                                    target_component=master.target_component,
+                                                    param_id=FENCE_TOTAL,
+                                                    param_value=len(fence_coordinates),
+                                                    param_type=dialect.MAV_PARAM_TYPE_REAL32)
+        master.mav.send(message)
+        message = master.recv_match(type=dialect.MAVLink_param_value_message.msgname,
+                                    blocking=True)
+        message = message.to_dict()
+        if message["param_id"] == "FENCE_TOTAL":
+            if int(message["param_value"]) == len(fence_coordinates):
+                print("FENCE_TOTAL set to {0} successfully".format(len(fence_coordinates)))
+                break
+            else:
+                print("Failed to set FENCE_TOTAL to {0}".format(len(fence_coordinates)))
+                
+    idx = 0
+
+    # run until all the fence items uploaded successfully
+    while idx < len(fence_coordinates):
+        message = dialect.MAVLink_fence_point_message(target_system=master.target_system,
+                                                    target_component=master.target_component,
+                                                    idx=idx,
+                                                    count=len(fence_coordinates),
+                                                    lat=fence_coordinates[idx][0],
+                                                    lng=fence_coordinates[idx][1])
+        master.mav.send(message)
+
+        message = dialect.MAVLink_fence_fetch_point_message(target_system=master.target_system,
+                                                            target_component=master.target_component,
+                                                            idx=idx)
+        master.mav.send(message)
+        message = master.recv_match(type=dialect.MAVLink_fence_point_message.msgname,
+                                    blocking=True)
+        message = message.to_dict()
+
+        latitude = message["lat"]
+        longitude = message["lng"]
+
+        if latitude != 0.0 and longitude != 0:
+            idx += 1
+
+    print("All the fence items uploaded successfully")
+
+    while True:
+        message = dialect.MAVLink_param_set_message(target_system=master.target_system,
+                                                    target_component=master.target_component,
+                                                    param_id=FENCE_ACTION,
+                                                    param_value=fence_action_original,
+                                                    param_type=dialect.MAV_PARAM_TYPE_REAL32)
+        master.mav.send(message)
+        message = master.recv_match(type=dialect.MAVLink_param_value_message.msgname,
+                                    blocking=True)
+        message = message.to_dict()
+
+        if message["param_id"] == "FENCE_ACTION":
+            if int(message["param_value"]) == fence_action_original:
+                print("FENCE_ACTION set to original value {0} successfully".format(fence_action_original))
+                break
+            else:
+                print("Failed to set FENCE_ACTION to original value {0} ".format(fence_action_original))
+
+@app.post("/set_fence/{drone_id}")
+async def set_fence_endpoint(drone_id: str):
+    try:
+        # Get the drone connection from the global dictionary
+        master = drone_connections.get(drone_id)
+        if not master:
+            raise HTTPException(status_code=404, detail=f"Drone with ID {drone_id} not found")
+        
+        # Load the fence coordinates from the config file
+        if "fence" not in config or "coordinates" not in config["fence"]:
+            raise HTTPException(status_code=404, detail="Fence coordinates not found in config file")
+        
+        fence_coordinates = config["fence"]["coordinates"]
+        
+        # Set the fence using the loaded coordinates
+        await set_fence(master, fence_coordinates)
+        
+        return {"status": f"Geofence set successfully for drone '{drone_id}'"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to set geofence: {str(e)}")
+
+@app.post("/enable_fence/{drone_id}")
+async def enable_fence_endpoint(drone_id: str, request: FenceEnableRequest):
+
+    fence_enable_definition = {
+        "DISABLE": 0,
+        "ENABLE": 1,
+        "DISABLE_FLOOR_ONLY": 2
+    }
+
+    fence_enable = request.fence_enable.upper()
+
+    if fence_enable not in fence_enable_definition:
+        raise HTTPException(status_code=400, detail="Unsupported fence enable mode")
+    
+    master = drone_connections.get(drone_id)
+    if not master:
+        raise HTTPException(status_code=404, detail=f"Drone with ID {drone_id} not found")
+    try:
+        message = dialect.MAVLink_command_long_message(
+            target_system=master.target_system,
+            target_component=master.target_component,
+            command=dialect.MAV_CMD_DO_FENCE_ENABLE,
+            confirmation=0,
+            param1=fence_enable_definition[fence_enable],
+            param2=0,
+            param3=0,
+            param4=0,
+            param5=0,
+            param6=0,
+            param7=0
+        )
+        master.mav.send(message)
+        return {"status": f"Fence {fence_enable} command sent to the drone '{drone_id}' successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to send fence command: {str(e)}")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+
+def fence_enable(master):
+    # fence enable definition
+    fence_enable_definition = {"DISABLE": 0,
+                            "ENABLE": 1,
+                            "DISABLE_FLOOR_ONLY": 2}
+
+    # get the first argument
+    fence_enable = sys.argv[1].upper()
+
+    if fence_enable in fence_enable_definition.keys():
+        print("Sending FENCE {0} to the vehicle".format(fence_enable))
+    else:
+        print("Not supported operation")
+        sys.exit()
+
+    # create the message
+    message = dialect.MAVLink_command_long_message(target_system=master.target_system,
+                                                target_component=master.target_component,
+                                                command=dialect.MAV_CMD_DO_FENCE_ENABLE,
+                                                confirmation=0,
+                                                param1=fence_enable_definition[fence_enable],
+                                                param2=0,
+                                                param3=0,
+                                                param4=0,
+                                                param5=0,
+                                                param6=0,
+                                                param7=0)
+
+    # send the message to the vehicle
+    master.mav.send(message)
+
 async def get_telemetry(master: mavutil.mavlink_connection) -> Telemetry:
     try:
         # create request data stream message
