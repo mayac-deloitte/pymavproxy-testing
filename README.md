@@ -1,69 +1,109 @@
 # pymavproxy-testing
 
-### FastAPI for Drone Swarm Using Non-Local Mutli-Vehicle SITL.
-A. To start the SITL drone swarm simulation (X = number of drones), run the following in `ArduPilot/ArduCopter`:
-```shell
-sim_vehicle.py -v copter --count=X --auto-sysid --console  --map 
-```
-1. Get inside the `/fast_api_drone` folder.
-2. Install all neccessary packages, using:
-```shell
-pip install -r requirements.txt
-```
-3. Specifify network configurations, default flight values & mission waypoints in `config.yaml`.
-4. To start the app, run:
-```shell
-python3 -m uvicorn main:app --reload
-```
-5. To connect all your drones, in another terminal run:
-```shell
-curl -X POST "http://127.0.0.1:8000/connect_all_drones"
-```  
-6. To connect a specific drone, e.g.`drone_1`, run:
-```shell
-curl -X POST "http://127.0.0.1:8000/connect_drone" -H "Content-Type: application/json" -d '{"drone_id": "drone_1"}'
-```  
-7. To get telemtry from all your drones, run:
-```shell
-curl -X GET "http://127.0.0.1:8000/get_all_telemetry"
-```
-8. To get telemtry from a specific drone, e.g.`drone_1`, run:
-```shell
-curl -X GET "http://127.0.0.1:8000/get_telemetry/drone_1"
-```
-9. To change the mode of the drone, e.g. change `drone_1` to `GUIDED` mode, run:
-```shell
-curl -X POST "http://localhost:8000/update_drone_mode/drone_1/GUIDED" -H "Content-Type: application/json"
-```
-10. To set a mission for a drone (in AUTO mode & arming vehicle) without requiring step 9 e.g set `mission_1` (waypoints specified in `config.yaml`) for `drone_1`, run:
-```shell
-curl -X POST "http://localhost:8000/set_mission/drone_1?mission_name=mission_1"
-```
-11. To set the same mission for all drones e.g  `mission_1`, run:
-```shell
-curl -X POST "http://localhost:8000/set_mission_all_drones/mission_1"
-```
-12. To set a fence for a specific drone (specified in `config.yaml`) e.g  `drone_1`, run:
-```shell
-curl -X POST "http://localhost:8000/set_fence/drone_1"
-```
-13. To set a fence for all drones, run:
-```shell
-curl -X POST "http://localhost:8000/set_fence_all_drones"
-```
-14. To enable/disable a fence ("DISABLE", "ENABLE" or "DISABLE_FLOOR_ONLY") for a specific drone  e.g  enable the fence for `drone_1`, run:
-```shell
-curl -X POST "http://localhost:8000/enable_fence/drone_1" -H "Content-Type: application/json" -d '{"fence_enable": "ENABLE"}'
-```
-15. To enable/disable a fence for all drones  e.g  disable the fence for all drones, run:
-```shell
-curl -X POST "http://localhost:8000/enable_fence_all_drones" -H "Content-Type: application/json" -d '{"fence_enable": "DISABLE"}'
-```
-16. To set rally points for a specific drone (specified in `config.yaml`) e.g  `drone_1`, run:
-```shell
-curl -X POST "http://localhost:8000/set_rally/drone_1"
-```
-17. To set the same rally points for all drones, run:
-```shell
-curl -X POST "http://localhost:8000/set_rally_all_drones"
-```
+### FastAPI for Drone Swarm Using Non-Local Multi-Vehicle SITL
+
+This project provides a FastAPI interface to control a drone swarm using non-local multi-vehicle SITL. Follow the steps below to set up and use the API.
+
+## Setup Instructions
+
+1. **Start the SITL Drone Swarm Simulation**
+   - To start the simulation with `X` number of drones, navigate to `ArduPilot/ArduCopter` and run:
+     ```shell
+     sim_vehicle.py -v copter --count=X --auto-sysid --console --map
+     ```
+
+2. **Install Required Packages**
+   - Navigate to the `/fast_api_drone` folder and install the necessary packages:
+     ```shell
+     pip install -r requirements.txt
+     ```
+
+3. **Configure the Application**
+   - Specify network configurations, default flight values, and mission waypoints in the `config.yaml` file.
+
+4. **Start the FastAPI Application**
+   - Run the following command to start the FastAPI application:
+     ```shell
+     python3 -m uvicorn main:app --reload
+     ```
+
+## API Endpoints
+
+1. **Connect to Drones**
+
+   - **Connect All Drones**:
+     ```shell
+     curl -X POST "http://127.0.0.1:8000/connect_all_drones"
+     ```
+
+   - **Connect a Specific Drone** (e.g., `drone_1`):
+     ```shell
+     curl -X POST "http://127.0.0.1:8000/connect_drone" -H "Content-Type: application/json" -d '{"drone_id": "drone_1"}'
+     ```
+
+2. **Telemetry**
+
+   - **Get Telemetry from All Drones**:
+     ```shell
+     curl -X GET "http://127.0.0.1:8000/get_all_telemetry"
+     ```
+
+   - **Get Telemetry from a Specific Drone** (e.g., `drone_1`):
+     ```shell
+     curl -X GET "http://127.0.0.1:8000/get_telemetry/drone_1"
+     ```
+
+3. **Control Drone Modes**
+
+   - **Change Drone Mode** (e.g., set `drone_1` to `GUIDED` mode):
+     ```shell
+     curl -X POST "http://localhost:8000/update_drone_mode/drone_1/GUIDED" -H "Content-Type: application/json"
+     ```
+
+4. **Set Missions**
+
+   - **Set a Mission for a Specific Drone** (e.g., `mission_1` for `drone_1`):
+     ```shell
+     curl -X POST "http://localhost:8000/set_mission/drone_1?mission_name=mission_1"
+     ```
+
+   - **Set the Same Mission for All Drones** (e.g., `mission_1`):
+     ```shell
+     curl -X POST "http://localhost:8000/set_mission_all_drones/mission_1"
+     ```
+
+5. **Set Fences**
+
+   - **Set a Fence for a Specific Drone** (specified in `config.yaml`, e.g., `drone_1`):
+     ```shell
+     curl -X POST "http://localhost:8000/set_fence/drone_1"
+     ```
+
+   - **Set the Same Fence for All Drones**:
+     ```shell
+     curl -X POST "http://localhost:8000/set_fence_all_drones"
+     ```
+
+   - **Enable/Disable Fence for a Specific Drone** (e.g., enable the fence for `drone_1`):
+     ```shell
+     curl -X POST "http://localhost:8000/enable_fence/drone_1" -H "Content-Type: application/json" -d '{"fence_enable": "ENABLE"}'
+     ```
+
+   - **Enable/Disable Fence for All Drones** (e.g., disable the fence for all drones):
+     ```shell
+     curl -X POST "http://localhost:8000/enable_fence_all_drones" -H "Content-Type: application/json" -d '{"fence_enable": "DISABLE"}'
+     ```
+
+6. **Set Rally Points**
+
+   - **Set Rally Points for a Specific Drone** (specified in `config.yaml`, e.g., `drone_1`):
+     ```shell
+     curl -X POST "http://localhost:8000/set_rally/drone_1"
+     ```
+
+   - **Set the Same Rally Points for All Drones**:
+     ```shell
+     curl -X POST "http://localhost:8000/set_rally_all_drones"
+     ```
+
+---
