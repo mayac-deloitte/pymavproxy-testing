@@ -59,3 +59,11 @@ curl -X POST "http://localhost:8000/enable_fence/drone_1" -H "Content-Type: appl
 ```shell
 curl -X POST "http://localhost:8000/enable_fence_all_drones" -H "Content-Type: application/json" -d '{"fence_enable": "DISABLE"}'
 ```
+16. To set rally points for a specific drone (specified in `config.yaml`) e.g  `drone_1`, run:
+```shell
+curl -X POST "http://localhost:8000/set_rally/drone_1"
+```
+17. To set the same rally points for all drones, run:
+```shell
+curl -X POST "http://localhost:8000/set_rally_all_drones"
+```
