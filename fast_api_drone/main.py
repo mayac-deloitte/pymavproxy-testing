@@ -679,6 +679,148 @@ async def enable_fence_all_drones(request: FenceEnableRequest):
     else:
         return {"status": "Fence enabled successfully for all drones", "successful_drones": successful_drones}
 
+async def set_rally(master, rally_coordinates: List[List[float]]):
+    # introduce RALLY_TOTAL as byte array and do not use parameter index
+    RALLY_TOTAL = "RALLY_TOTAL".encode(encoding="utf-8")
+    PARAM_INDEX = -1
+
+    # run until parameter set successfully
+    while True:
+
+        # create parameter set message
+        message = dialect.MAVLink_param_set_message(target_system=master.target_system,
+                                                    target_component=master.target_component,
+                                                    param_id=RALLY_TOTAL,
+                                                    param_value=len(rally_coordinates),
+                                                    param_type=dialect.MAV_PARAM_TYPE_REAL32)
+
+        # send parameter set message to the vehicle
+        master.mav.send(message)
+
+        # wait for PARAM_VALUE message
+        message = master.recv_match(type=dialect.MAVLink_param_value_message.msgname,
+                                    blocking=True)
+
+        # convert the message to dictionary
+        message = message.to_dict()
+
+        # make sure this parameter value message is for RALLY_TOTAL
+        if message["param_id"] == "RALLY_TOTAL":
+
+            # make sure that parameter value set successfully
+            if int(message["param_value"]) == len(rally_coordinates):
+                print("RALLY_TOTAL set to {0} successfully".format(len(rally_coordinates)))
+
+                # break the loop
+                break
+
+            # should send param set message again
+            else:
+                print("Failed to set RALLY_TOTAL to {0}".format(len(rally_coordinates)))
+
+    # initialize rally point item index counter
+    idx = 0
+
+    # run until all the rally point items uploaded successfully
+    while idx < len(rally_coordinates):
+
+        # create RALLY_POINT message
+        message = dialect.MAVLink_rally_point_message(target_system=master.target_system,
+                                                    target_component=master.target_component,
+                                                    idx=idx,
+                                                    count=len(rally_coordinates),
+                                                    lat=int(rally_coordinates[idx][0] * 1e7),
+                                                    lng=int(rally_coordinates[idx][1] * 1e7),
+                                                    alt=int(rally_coordinates[idx][2]),
+                                                    break_alt=0,
+                                                    land_dir=0,
+                                                    flags=0)
+
+        # send RALLY_POINT message to the vehicle
+        master.mav.send(message)
+
+        # create RALLY_FETCH_POINT message
+        message = dialect.MAVLink_rally_fetch_point_message(target_system=master.target_system,
+                                                            target_component=master.target_component,
+                                                            idx=idx)
+
+        # send this message to vehicle
+        master.mav.send(message)
+
+        # wait for RALLY_POINT message
+        message = master.recv_match(type=dialect.MAVLink_rally_point_message.msgname,
+                                    blocking=True)
+
+        # convert the message to dictionary
+        message = message.to_dict()
+
+        # make sure this RALLY_POINT message is for the same rally point item
+        if message["idx"] == idx and \
+                message["count"] == len(rally_coordinates) and \
+                message["lat"] == int(rally_coordinates[idx][0] * 1e7) and \
+                message["lng"] == int(rally_coordinates[idx][1] * 1e7) and \
+                message["alt"] == int(rally_coordinates[idx][2]):
+
+            # increment rally point item index counter
+            idx += 1
+
+            # inform user
+            print("Rally point {0} uploaded successfully".format(idx))
+
+        # should send RALLY_POINT message again
+        else:
+            print("Failed to upload rally point {0}".format(idx))
+
+    print("All the rally point items uploaded successfully")
+
+@app.post("/set_rally_point/{drone_id}")
+async def set_rally_endpoint(drone_id: str):
+    try:
+        # Get the drone connection from the global dictionary
+        master = drone_connections.get(drone_id)
+        if not master:
+            raise HTTPException(status_code=404, detail=f"Drone with ID {drone_id} not found")
+        
+        # Load the fence coordinates from the config file
+        if "rally" not in config or "coordinates" not in config["rally"]:
+            raise HTTPException(status_code=404, detail="Rally coordinates not found in config file")
+        
+        rally_coordinates = config["rally"]["coordinates"]
+        
+        # Set the fence using the loaded coordinates
+        await set_rally(master, rally_coordinates)
+        
+        return {"status": f"Rally points set successfully for drone '{drone_id}'"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to set rally points: {str(e)}")
+
+@app.post("/set_rally_all_drones")
+async def set_rally_all_drones():
+    successful_drones = []
+    failed_drones = []
+
+    if "rally" not in config or "coordinates" not in config["rally"]:
+        raise HTTPException(status_code=404, detail="Rally coordinates not found in config file")
+    
+    rally_coordinates = config["rally"]["coordinates"]
+
+    for drone_id, master in drone_connections.items():
+        try:
+            await set_rally(master, rally_coordinates)
+            successful_drones.append(drone_id)
+            await asyncio.sleep(1)
+        except Exception as e:
+            failed_drones.append({"drone_id": drone_id, "error": str(e)})
+
+    if failed_drones:
+        return {
+            "status": "Some drones failed to set the rally points",
+            "successful_drones": successful_drones,
+            "failed_drones": failed_drones
+        }
+    else:
+        return {"status": "Rally points set successfully for all drones", "successful_drones": successful_drones}
+
 async def get_telemetry(master: mavutil.mavlink_connection) -> Telemetry:
     try:
         # create request data stream message
