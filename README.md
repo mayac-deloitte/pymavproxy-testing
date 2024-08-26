@@ -31,7 +31,7 @@ This project provides a FastAPI interface to control a drone swarm using non-loc
    - Run the following command to start the FastAPI application:
      - **Bash/PowerShell:**
        ```bash
-       python -m uvicorn main:app --reload
+       python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
        ```
 
 ## API Endpoints
@@ -41,22 +41,22 @@ This project provides a FastAPI interface to control a drone swarm using non-loc
    - **Connect All Drones:**
      - **Bash:**
        ```bash
-       curl -X POST "http://127.0.0.1:8000/connect_all_drones"
+       curl -X POST "http://localhost:8000/connect_all_drones"
        ```
      - **PowerShell:**
        ```powershell
-       Invoke-WebRequest -Uri "http://127.0.0.1:8000/connect_all_drones" -Method Post
+       Invoke-WebRequest -Uri "http://localhost:8000/connect_all_drones" -Method Post
        ```
 
    - **Connect a Specific Drone** (e.g., `drone_1`):
      - **Bash:**
        ```bash
-       curl -X POST "http://127.0.0.1:8000/connect_drone" -H "Content-Type: application/json" -d '{"drone_id": "drone_1"}'
+       curl -X POST "http://localhost:8000/connect_drone" -H "Content-Type: application/json" -d '{"drone_id": "drone_1"}'
        ```
      - **PowerShell:**
        ```powershell
        $body = '{"drone_id": "drone_1"}'
-       Invoke-WebRequest -Uri "http://127.0.0.1:8000/connect_drone" -Method Post -ContentType "application/json" -Body $body
+       Invoke-WebRequest -Uri "http://localhost:8000/connect_drone" -Method Post -ContentType "application/json" -Body $body
        ```
 
 ### 2. **Telemetry**
@@ -64,21 +64,21 @@ This project provides a FastAPI interface to control a drone swarm using non-loc
    - **Get Telemetry from All Drones:**
      - **Bash:**
        ```bash
-       curl -X GET "http://127.0.0.1:8000/get_all_telemetry"
+       curl -X GET "http://localhost:8000/get_all_telemetry"
        ```
      - **PowerShell:**
        ```powershell
-       Invoke-WebRequest -Uri "http://127.0.0.1:8000/get_all_telemetry" -Method Get
+       Invoke-WebRequest -Uri "http://localhost:8000/get_all_telemetry" -Method Get
        ```
 
    - **Get Telemetry from a Specific Drone** (e.g., `drone_1`):
      - **Bash:**
        ```bash
-       curl -X GET "http://127.0.0.1:8000/get_telemetry/drone_1"
+       curl -X GET "http://localhost:8000/get_telemetry/drone_1"
        ```
      - **PowerShell:**
        ```powershell
-       Invoke-WebRequest -Uri "http://127.0.0.1:8000/get_telemetry/drone_1" -Method Get
+       Invoke-WebRequest -Uri "http://localhost:8000/get_telemetry/drone_1" -Method Get
        ```
 
 ### 3. **Control Drone Modes**
@@ -188,7 +188,7 @@ Here’s what you can expect as output from each of the `curl` commands listed i
 
 1. **Connect All Drones**
    ```bash
-   curl -X POST "http://127.0.0.1:8000/connect_all_drones"
+   curl -X POST "http://localhost:8000/connect_all_drones"
    ```
    **Output:**
    ```json
@@ -202,7 +202,7 @@ Here’s what you can expect as output from each of the `curl` commands listed i
 
 2. **Connect a Specific Drone**
    ```bash
-   curl -X POST "http://127.0.0.1:8000/connect_drone" -H "Content-Type: application/json" -d '{"drone_id": "drone_1"}'
+   curl -X POST "http://localhost:8000/connect_drone" -H "Content-Type: application/json" -d '{"drone_id": "drone_1"}'
    ```
    **Output:**
    ```json
@@ -214,7 +214,7 @@ Here’s what you can expect as output from each of the `curl` commands listed i
 
 3. **Get Telemetry from All Drones**
    ```bash
-   curl -X GET "http://127.0.0.1:8000/get_all_telemetry"
+   curl -X GET "http://localhost:8000/get_all_telemetry"
    ```
    **Output:**
    ```json
@@ -249,7 +249,7 @@ Here’s what you can expect as output from each of the `curl` commands listed i
 
 4. **Get Telemetry from a Specific Drone**
    ```bash
-   curl -X GET "http://127.0.0.1:8000/get_telemetry/drone_1"
+   curl -X GET "http://localhost:8000/get_telemetry/drone_1"
    ```
    **Output:**
    ```json
