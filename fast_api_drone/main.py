@@ -85,7 +85,7 @@ async def connect_all_drones():
     else:
         return {"status": "All drones connected successfully", "connected_drones": connected_drones}
 
-async def set_mode(master, flight_mode: str):
+def set_mode(master, flight_mode: str):
 
     # get supported flight modes
     flight_modes = master.mode_mapping()
@@ -165,7 +165,7 @@ async def update_drone_mode_endpoint(drone_id: str, flight_mode: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-async def set_mission_and_start(master, target_locations: List[Waypoint]):
+def set_mission_and_start(master, target_locations: List[Waypoint]):
 
     message = dialect.MAVLink_mission_count_message(target_system=master.target_system,
                                                     target_component=master.target_component,
