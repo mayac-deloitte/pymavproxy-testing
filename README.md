@@ -8,104 +8,178 @@ This project provides a FastAPI interface to control a drone swarm using non-loc
 
 1. **Start the SITL Drone Swarm Simulation**
    - To start the simulation with `X` number of drones, navigate to `ArduPilot/ArduCopter` and run:
-     ```shell
-     sim_vehicle.py -v copter --count=X --auto-sysid --console --map
-     ```
+     - **Bash:**
+       ```bash
+       sim_vehicle.py -v copter --count=X --auto-sysid --console --map
+       ```
+     - **PowerShell:**
+       ```powershell
+       .\Tools\autotest\sim_vehicle.py -v ArduCopter --count=X --auto-sysid --console --map
+       ```
 
 2. **Install Required Packages**
    - Navigate to the `/fast_api_drone` folder and install the necessary packages:
-     ```shell
-     pip install -r requirements.txt
-     ```
+     - **Bash/PowerShell:**
+       ```bash
+       pip install -r requirements.txt
+       ```
 
 3. **Configure the Application**
    - Specify network configurations, default flight values, and mission waypoints in the `config.yaml` file.
 
 4. **Start the FastAPI Application**
    - Run the following command to start the FastAPI application:
-     ```shell
-     python3 -m uvicorn main:app --reload
-     ```
+     - **Bash/PowerShell:**
+       ```bash
+       python -m uvicorn main:app --reload
+       ```
 
 ## API Endpoints
 
-1. **Connect to Drones**
+### 1. **Connect to Drones**
 
-   - **Connect All Drones**:
-     ```shell
-     curl -X POST "http://127.0.0.1:8000/connect_all_drones"
-     ```
+   - **Connect All Drones:**
+     - **Bash:**
+       ```bash
+       curl -X POST "http://127.0.0.1:8000/connect_all_drones"
+       ```
+     - **PowerShell:**
+       ```powershell
+       Invoke-WebRequest -Uri "http://127.0.0.1:8000/connect_all_drones" -Method Post
+       ```
 
    - **Connect a Specific Drone** (e.g., `drone_1`):
-     ```shell
-     curl -X POST "http://127.0.0.1:8000/connect_drone" -H "Content-Type: application/json" -d '{"drone_id": "drone_1"}'
-     ```
+     - **Bash:**
+       ```bash
+       curl -X POST "http://127.0.0.1:8000/connect_drone" -H "Content-Type: application/json" -d '{"drone_id": "drone_1"}'
+       ```
+     - **PowerShell:**
+       ```powershell
+       $body = '{"drone_id": "drone_1"}'
+       Invoke-WebRequest -Uri "http://127.0.0.1:8000/connect_drone" -Method Post -ContentType "application/json" -Body $body
+       ```
 
-2. **Telemetry**
+### 2. **Telemetry**
 
-   - **Get Telemetry from All Drones**:
-     ```shell
-     curl -X GET "http://127.0.0.1:8000/get_all_telemetry"
-     ```
+   - **Get Telemetry from All Drones:**
+     - **Bash:**
+       ```bash
+       curl -X GET "http://127.0.0.1:8000/get_all_telemetry"
+       ```
+     - **PowerShell:**
+       ```powershell
+       Invoke-WebRequest -Uri "http://127.0.0.1:8000/get_all_telemetry" -Method Get
+       ```
 
    - **Get Telemetry from a Specific Drone** (e.g., `drone_1`):
-     ```shell
-     curl -X GET "http://127.0.0.1:8000/get_telemetry/drone_1"
-     ```
+     - **Bash:**
+       ```bash
+       curl -X GET "http://127.0.0.1:8000/get_telemetry/drone_1"
+       ```
+     - **PowerShell:**
+       ```powershell
+       Invoke-WebRequest -Uri "http://127.0.0.1:8000/get_telemetry/drone_1" -Method Get
+       ```
 
-3. **Control Drone Modes**
+### 3. **Control Drone Modes**
 
    - **Change Drone Mode** (e.g., set `drone_1` to `GUIDED` mode):
-     ```shell
-     curl -X POST "http://localhost:8000/update_drone_mode/drone_1/GUIDED" -H "Content-Type: application/json"
-     ```
+     - **Bash:**
+       ```bash
+       curl -X POST "http://localhost:8000/update_drone_mode/drone_1/GUIDED" -H "Content-Type: application/json"
+       ```
+     - **PowerShell:**
+       ```powershell
+       Invoke-WebRequest -Uri "http://localhost:8000/update_drone_mode/drone_1/GUIDED" -Method Post -ContentType "application/json"
+       ```
 
-4. **Set Missions**
+### 4. **Set Missions**
 
    - **Set a Mission for a Specific Drone** (e.g., `mission_1` for `drone_1`):
-     ```shell
-     curl -X POST "http://localhost:8000/set_mission/drone_1?mission_name=mission_1"
-     ```
+     - **Bash:**
+       ```bash
+       curl -X POST "http://localhost:8000/set_mission/drone_1?mission_name=mission_1"
+       ```
+     - **PowerShell:**
+       ```powershell
+       Invoke-WebRequest -Uri "http://localhost:8000/set_mission/drone_1?mission_name=mission_1" -Method Post
+       ```
 
    - **Set the Same Mission for All Drones** (e.g., `mission_1`):
-     ```shell
-     curl -X POST "http://localhost:8000/set_mission_all_drones/mission_1"
-     ```
+     - **Bash:**
+       ```bash
+       curl -X POST "http://localhost:8000/set_mission_all_drones/mission_1"
+       ```
+     - **PowerShell:**
+       ```powershell
+       Invoke-WebRequest -Uri "http://localhost:8000/set_mission_all_drones/mission_1" -Method Post
+       ```
 
-5. **Set Fences**
+### 5. **Set Fences**
 
    - **Set a Fence for a Specific Drone** (specified in `config.yaml`, e.g., `drone_1`):
-     ```shell
-     curl -X POST "http://localhost:8000/set_fence/drone_1"
-     ```
+     - **Bash:**
+       ```bash
+       curl -X POST "http://localhost:8000/set_fence/drone_1"
+       ```
+     - **PowerShell:**
+       ```powershell
+       Invoke-WebRequest -Uri "http://localhost:8000/set_fence/drone_1" -Method Post
+       ```
 
    - **Set the Same Fence for All Drones**:
-     ```shell
-     curl -X POST "http://localhost:8000/set_fence_all_drones"
-     ```
+     - **Bash:**
+       ```bash
+       curl -X POST "http://localhost:8000/set_fence_all_drones"
+       ```
+     - **PowerShell:**
+       ```powershell
+       Invoke-WebRequest -Uri "http://localhost:8000/set_fence_all_drones" -Method Post
+       ```
 
    - **Enable/Disable Fence for a Specific Drone** (e.g., enable the fence for `drone_1`):
-     ```shell
-     curl -X POST "http://localhost:8000/enable_fence/drone_1" -H "Content-Type: application/json" -d '{"fence_enable": "ENABLE"}'
-     ```
+     - **Bash:**
+       ```bash
+       curl -X POST "http://localhost:8000/enable_fence/drone_1" -H "Content-Type: application/json" -d '{"fence_enable": "ENABLE"}'
+       ```
+     - **PowerShell:**
+       ```powershell
+       $body = '{"fence_enable": "ENABLE"}'
+       Invoke-WebRequest -Uri "http://localhost:8000/enable_fence/drone_1" -Method Post -ContentType "application/json" -Body $body
+       ```
 
    - **Enable/Disable Fence for All Drones** (e.g., disable the fence for all drones):
-     ```shell
-     curl -X POST "http://localhost:8000/enable_fence_all_drones" -H "Content-Type: application/json" -d '{"fence_enable": "DISABLE"}'
-     ```
+     - **Bash:**
+       ```bash
+       curl -X POST "http://localhost:8000/enable_fence_all_drones" -H "Content-Type: application/json" -d '{"fence_enable": "DISABLE"}'
+       ```
+     - **PowerShell:**
+       ```powershell
+       $body = '{"fence_enable": "DISABLE"}'
+       Invoke-WebRequest -Uri "http://localhost:8000/enable_fence_all_drones" -Method Post -ContentType "application/json" -Body $body
+       ```
 
-6. **Set Rally Points**
+### 6. **Set Rally Points**
 
    - **Set Rally Points for a Specific Drone** (specified in `config.yaml`, e.g., `drone_1`):
-     ```shell
-     curl -X POST "http://localhost:8000/set_rally/drone_1"
-     ```
+     - **Bash:**
+       ```bash
+       curl -X POST "http://localhost:8000/set_rally/drone_1"
+       ```
+     - **PowerShell:**
+       ```powershell
+       Invoke-WebRequest -Uri "http://localhost:8000/set_rally/drone_1" -Method Post
+       ```
 
    - **Set the Same Rally Points for All Drones**:
-     ```shell
-     curl -X POST "http://localhost:8000/set_rally_all_drones"
-     ```
-
+     - **Bash:**
+       ```bash
+       curl -X POST "http://localhost:8000/set_rally_all_drones"
+       ```
+     - **PowerShell:**
+       ```powershell
+       Invoke-WebRequest -Uri "http://localhost:8000/set_rally_all_drones" -Method Post
+       ```
 ---
 
 ## Expected Outputs
