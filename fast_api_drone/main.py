@@ -43,9 +43,8 @@ class ConnectDroneRequest(BaseModel):
 class FenceEnableRequest(BaseModel):
     fence_enable: str
 
-@app.post("/connect_drone")
-async def connect_drone(request: ConnectDroneRequest):
-    drone_id = request.drone_id
+def connect_drone_by_id(drone_id: str):
+    """Function to connect to a drone by its ID."""
     try:
         connection_string = config["drones"][drone_id]
         if drone_id not in drone_connections:
@@ -58,23 +57,23 @@ async def connect_drone(request: ConnectDroneRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/connect_drone")
+async def connect_drone_endpoint(request: ConnectDroneRequest):
+    """Endpoint to connect to a single drone by ID."""
+    return connect_drone_by_id(request.drone_id)
+
 @app.post("/connect_all_drones")
-async def connect_all_drones():
+async def connect_all_drones_endpoint():
+    """Endpoint to connect to all drones specified in the config."""
     connected_drones = []
     failed_drones = []
 
     for drone_id in config["drones"]:
         try:
-            connection_string = config["drones"][drone_id]
-            if drone_id not in drone_connections:
-                master = mavutil.mavlink_connection(connection_string)
-                master.wait_heartbeat()
-                drone_connections[drone_id] = master
-                connected_drones.append(drone_id)
-            else:
-                connected_drones.append(drone_id)
-        except Exception as e:
-            failed_drones.append((drone_id, str(e)))
+            response = connect_drone_by_id(drone_id)
+            connected_drones.append(drone_id)
+        except HTTPException as e:
+            failed_drones.append({"drone_id": drone_id, "error": str(e)})
 
     if failed_drones:
         return {
@@ -150,7 +149,6 @@ def set_mode(master, flight_mode: str):
 
 @app.post("/update_drone_mode/{drone_id}/{flight_mode}")
 async def update_drone_mode_endpoint(drone_id: str, flight_mode: str):
-    master = drone_connections.get(drone_id)
     if not master:
         raise HTTPException(status_code=404, detail=f"Drone with ID {drone_id} not found")
     
@@ -822,50 +820,51 @@ async def set_rally_all_drones():
         return {"status": "Rally points set successfully for all drones", "successful_drones": successful_drones}
 
 async def get_telemetry(master: mavutil.mavlink_connection) -> Telemetry:
+
     try:
         # create request data stream message
         request = dialect.MAVLink_request_data_stream_message(target_system=master.target_system,
-                                                            target_component=master.target_component,
-                                                            req_stream_id=0,
-                                                            req_message_rate=10,
-                                                            start_stop=1)
+                                                                target_component=master.target_component,
+                                                                req_stream_id=0,
+                                                                req_message_rate=10,
+                                                                start_stop=1)
 
         # send request data stream message to the vehicle
         master.mav.send(request)
         
-        # Wait for a new MAVLink message
-        msg_glboal_position = master.recv_match(type='GLOBAL_POSITION_INT', timeout=10, blocking = True)
-        msg_sys_status = master.recv_match(type='SYS_STATUS', timeout=10, blocking = True)
-        msg_gps = master.recv_match(type='GPS_RAW_INT', timeout=10, blocking = True)
+        while True:
+            # msg_glboal_position = master.recv_match(type='GLOBAL_POSITION_INT', blocking = True)
+            # msg_sys_status = master.recv_match(type='SYS_STATUS', blocking = True)
+            # msg_gps = master.recv_match(type='GPS_RAW_INT', blocking = True)
 
-        if msg_glboal_position is None:
-            raise ValueError("No global position telemetry message received")
-        if msg_sys_status is None:
-            raise ValueError("No system status telemetry message received")
-        if msg_gps is None:
-            raise ValueError("No raw GPS telemetry message received")
+            message = master.recv_match(type=dialect.MAVLink_global_position_int_message.msgname, blocking=True)
 
-        latitude = msg_glboal_position.lat / 1e7
-        longitude = msg_glboal_position.lon / 1e7
-        altitude = msg_glboal_position.alt / 1000.0
-        relative_altitude = msg_glboal_position.relative_alt / 1000.0
-        heading = msg_glboal_position.hdg / 100.0
+            if message is None:
+                raise ValueError("No global position telemetry message received")
+            # if msg_sys_status is None:
+                # raise ValueError("No system status telemetry message received")
+            # if msg_gps is None:
+                # raise ValueError("No raw GPS telemetry message received")
 
-        battery_remaining = msg_sys_status.battery_remaining
-
-        gps_fix = msg_gps.fix_type
-        
-        # Return telemetry data
-        telemetry_data = Telemetry(
-            latitude=latitude if latitude is not None else 0.0,
-            longitude=longitude if longitude is not None else 0.0,
-            altitude=altitude if altitude is not None else 0.0,
-            relative_altitude=relative_altitude,
-            heading=heading,
-            battery_remaining=battery_remaining,
-            gps_fix=gps_fix
-        )
-        return telemetry_data
+            latitude = message.lat / 1e7
+            longitude = message.lon / 1e7
+            altitude = message.alt / 1000.0
+            relative_altitude = message.relative_alt / 1000.0
+            heading = message.hdg / 100.0
+            # battery_remaining = msg_sys_status.battery_remaining
+            # gps_fix = msg_gps.fix_type
+            
+            # Return telemetry data
+            telemetry_data = Telemetry(
+                latitude=latitude if latitude is not None else 0.0,
+                longitude=longitude if longitude is not None else 0.0,
+                altitude=altitude if altitude is not None else 0.0,
+                relative_altitude=relative_altitude,
+                heading=heading,
+                # battery_remaining=battery_remaining,
+                # gps_fix=gps_fix
+            )
+            return telemetry_data
 
     except Exception as e:
         print(f"Error retrieving telemetry data: {e}")
@@ -873,6 +872,7 @@ async def get_telemetry(master: mavutil.mavlink_connection) -> Telemetry:
 
 @app.get("/get_telemetry/{drone_id}", response_model=Telemetry)
 async def get_telemetry_endpoint(drone_id: str):
+    connect_drone_by_id(drone_id)
     master = drone_connections.get(drone_id)
     if not master:
         raise HTTPException(status_code=404, detail=f"Drone with ID {drone_id} not found")
@@ -888,6 +888,7 @@ async def get_all_telemetry():
     all_telemetry = []
     
     for drone_id, master in drone_connections.items():
+        connect_drone_by_id(drone_id)
         try:
             telemetry = await get_telemetry(master)
             all_telemetry.append({
