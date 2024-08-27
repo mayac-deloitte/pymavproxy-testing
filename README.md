@@ -36,7 +36,9 @@ This project provides a FastAPI interface to control a drone swarm using non-loc
 
 ## API Endpoints
 
-### 1. **Connect to Drones**
+Note. If connecting to the API non-locally, replace `localhost` with the appropriate IP address.
+
+### 1. **Connect to Dronesm (REQUIRED)**
 
    - **Connect All Drones:**
      - **Bash:**
