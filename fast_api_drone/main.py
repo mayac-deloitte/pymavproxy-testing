@@ -820,7 +820,6 @@ async def set_rally_all_drones():
         return {"status": "Rally points set successfully for all drones", "successful_drones": successful_drones}
 
 async def get_telemetry(master: mavutil.mavlink_connection) -> Telemetry:
-
     try:
         # create request data stream message
         request = dialect.MAVLink_request_data_stream_message(target_system=master.target_system,
@@ -833,24 +832,23 @@ async def get_telemetry(master: mavutil.mavlink_connection) -> Telemetry:
         master.mav.send(request)
         
         while True:
-            # msg_glboal_position = master.recv_match(type='GLOBAL_POSITION_INT', blocking = True)
-            # msg_sys_status = master.recv_match(type='SYS_STATUS', blocking = True)
-            # msg_gps = master.recv_match(type='GPS_RAW_INT', blocking = True)
+            
+            msg_global_position_int = master.recv_match(type=dialect.MAVLink_global_position_int_message.msgname, blocking=True)
+            # msg_sys_status = master.recv_match(type=dialect.MAVLink_sys_status_message.msgname, blocking=True)
+            # msg_gps = master.recv_match(type=dialect.MAVLink_gps_raw_int_message.msgname, blocking=True)
 
-            message = master.recv_match(type=dialect.MAVLink_global_position_int_message.msgname, blocking=True)
-
-            if message is None:
+            if msg_global_position_int is None:
                 raise ValueError("No global position telemetry message received")
             # if msg_sys_status is None:
                 # raise ValueError("No system status telemetry message received")
             # if msg_gps is None:
                 # raise ValueError("No raw GPS telemetry message received")
 
-            latitude = message.lat / 1e7
-            longitude = message.lon / 1e7
-            altitude = message.alt / 1000.0
-            relative_altitude = message.relative_alt / 1000.0
-            heading = message.hdg / 100.0
+            latitude = msg_global_position_int.lat / 1e7
+            longitude = msg_global_position_int.lon / 1e7
+            altitude = msg_global_position_int.alt / 1000.0
+            relative_altitude = msg_global_position_int.relative_alt / 1000.0
+            heading = msg_global_position_int.hdg / 100.0
             # battery_remaining = msg_sys_status.battery_remaining
             # gps_fix = msg_gps.fix_type
             
