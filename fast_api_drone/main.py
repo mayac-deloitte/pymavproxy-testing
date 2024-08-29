@@ -72,6 +72,7 @@ async def connect_all_drones_endpoint():
 
     for drone_id in config["drones"]:
         try:
+            response = connect_drone_by_id(drone_id)
             connected_drones.append(drone_id)
         except HTTPException as e:
             failed_drones.append({"drone_id": drone_id, "error": str(e)})
@@ -903,20 +904,21 @@ async def get_all_telemetry():
     
     return all_telemetry
 
-# Define a dictionary that maps voice commands to API endpoints and their parameters
+# Define a dictionary that maps voice commands to functions and their parameters
 voice_commands = {
-    "connect drone": {"url": "http://127.0.0.1:8000/connect_drone", "method": "POST", "params": {"drone_id": "drone_1"}},
-    "start mission": {"url": "http://127.0.0.1:8000/set_mission/drone_1", "method": "POST", "params": {"mission_name": "mission1"}},
-    "enable fence": {"url": "http://127.0.0.1:8000/enable_fence/drone_1", "method": "POST", "params": {"fence_enable": "enable"}},
-    "get telemetry": {"url": "http://127.0.0.1:8000/get_telemetry/drone_1", "method": "GET"},
+    "connect drone": {"function": connect_drone_by_id, "params": {"drone_id": "drone_1"}},
+    "connect all drones": {"function": connect_all_drones_endpoint, "params": {}},
+    "start mission for drone number one": {"function": set_mission_endpoint, "params": {"drone_id": "drone_1", "mission_name": "mission_1"}},
+    "enable fence": {"function": enable_fence_endpoint, "params": {"drone_id": "drone_1", "request": FenceEnableRequest(fence_enable="ENABLE")}},
+    "set rally": {"function": set_rally_endpoint, "params": {"drone_id": "drone_1"}},
+    "get telemetry": {"function": get_telemetry_endpoint, "params": {"drone_id": "drone_1"}},
 }
 
-def recognize_speech():
+async def recognize_speech():
     r = sr.Recognizer()
     with sr.Microphone() as source:
         print("Say something!")
         audio = r.listen(source)
-
     try:
         command = r.recognize_google(audio).lower()
         print(f"Command recognized: {command}")
@@ -927,30 +929,29 @@ def recognize_speech():
         print(f"Could not request results from Google Speech Recognition service; {e}")
     return None
 
-def trigger_action(command):
+async def trigger_action(command):
     if command in voice_commands:
         command_info = voice_commands[command]
-        url = command_info["url"]
-        method = command_info["method"]
+        function = command_info["function"]
         params = command_info.get("params", {})
 
-        if method == "POST":
-            response = requests.post(url, json=params)
-        elif method == "GET":
-            response = requests.get(url, params=params)
-        else:
-            print(f"Unsupported method: {method}")
-            return
-
-        print(f"Triggered {command} with response: {response.json()}")
+        # Call the function with the parameters
+        try:
+            if asyncio.iscoroutinefunction(function):
+                result = await function(**params)
+            else:
+                result = function(**params)
+            print(f"Triggered {command} with result: {result}")
+        except Exception as e:
+            print(f"Error triggering {command}: {e}")
     else:
         print(f"Command '{command}' not found in command list.")
 
 @app.get("/trigger_voice_command")
 async def trigger_voice_command():
-    command = recognize_speech()
+    command = await recognize_speech()  # Ensure recognize_speech is awaited if it's async
     if command:
-        trigger_action(command)
+        await trigger_action(command)  # Await trigger_action to properly execute the coroutine
     return {"status": "Voice command processed"}
 
 if __name__ == "__main__":
