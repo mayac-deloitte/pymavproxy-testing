@@ -72,7 +72,6 @@ async def connect_all_drones_endpoint():
 
     for drone_id in config["drones"]:
         try:
-            response = connect_drone_by_id(drone_id)
             connected_drones.append(drone_id)
         except HTTPException as e:
             failed_drones.append({"drone_id": drone_id, "error": str(e)})
@@ -151,6 +150,7 @@ def set_mode(master, flight_mode: str):
 
 @app.post("/update_drone_mode/{drone_id}/{flight_mode}")
 async def update_drone_mode_endpoint(drone_id: str, flight_mode: str):
+    master = drone_connections.get(drone_id)
     if not master:
         raise HTTPException(status_code=404, detail=f"Drone with ID {drone_id} not found")
     
