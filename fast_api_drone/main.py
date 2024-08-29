@@ -6,6 +6,8 @@ import asyncio
 import yaml
 from typing import List, Optional
 import pymavlink.dialects.v20.all as dialect
+import speech_recognition as sr
+import requests
 
 app = FastAPI()
 
@@ -900,6 +902,56 @@ async def get_all_telemetry():
             })
     
     return all_telemetry
+
+# Define a dictionary that maps voice commands to API endpoints and their parameters
+voice_commands = {
+    "connect drone": {"url": "http://127.0.0.1:8000/connect_drone", "method": "POST", "params": {"drone_id": "drone_1"}},
+    "start mission": {"url": "http://127.0.0.1:8000/set_mission/drone_1", "method": "POST", "params": {"mission_name": "mission1"}},
+    "enable fence": {"url": "http://127.0.0.1:8000/enable_fence/drone_1", "method": "POST", "params": {"fence_enable": "enable"}},
+    "get telemetry": {"url": "http://127.0.0.1:8000/get_telemetry/drone_1", "method": "GET"},
+}
+
+def recognize_speech():
+    r = sr.Recognizer()
+    with sr.Microphone() as source:
+        print("Say something!")
+        audio = r.listen(source)
+
+    try:
+        command = r.recognize_google(audio).lower()
+        print(f"Command recognized: {command}")
+        return command
+    except sr.UnknownValueError:
+        print("Google Speech Recognition could not understand audio")
+    except sr.RequestError as e:
+        print(f"Could not request results from Google Speech Recognition service; {e}")
+    return None
+
+def trigger_action(command):
+    if command in voice_commands:
+        command_info = voice_commands[command]
+        url = command_info["url"]
+        method = command_info["method"]
+        params = command_info.get("params", {})
+
+        if method == "POST":
+            response = requests.post(url, json=params)
+        elif method == "GET":
+            response = requests.get(url, params=params)
+        else:
+            print(f"Unsupported method: {method}")
+            return
+
+        print(f"Triggered {command} with response: {response.json()}")
+    else:
+        print(f"Command '{command}' not found in command list.")
+
+@app.get("/trigger_voice_command")
+async def trigger_voice_command():
+    command = recognize_speech()
+    if command:
+        trigger_action(command)
+    return {"status": "Voice command processed"}
 
 if __name__ == "__main__":
     import uvicorn

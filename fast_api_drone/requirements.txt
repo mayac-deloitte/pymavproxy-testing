@@ -2,3 +2,5 @@ fastapi==0.95.2
 pyyaml==6.0
 pymavlink==2.4.0
 uvicorn==0.22.0
+requests==2.32.3
+SpeechRecognition==3.10.4
