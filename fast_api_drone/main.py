@@ -837,23 +837,23 @@ async def get_telemetry(master: mavutil.mavlink_connection) -> Telemetry:
         while True:
             
             msg_global_position_int = master.recv_match(type=dialect.MAVLink_global_position_int_message.msgname, blocking=True)
-            # msg_sys_status = master.recv_match(type=dialect.MAVLink_sys_status_message.msgname, blocking=True)
-            # msg_gps = master.recv_match(type=dialect.MAVLink_gps_raw_int_message.msgname, blocking=True)
+            msg_sys_status = master.recv_match(type=dialect.MAVLink_battery_status_message.msgname, blocking=True)
+            msg_gps = master.recv_match(type=dialect.MAVLink_gps_raw_int_message.msgname)
 
             if msg_global_position_int is None:
                 raise ValueError("No global position telemetry message received")
-            # if msg_sys_status is None:
-                # raise ValueError("No system status telemetry message received")
-            # if msg_gps is None:
-                # raise ValueError("No raw GPS telemetry message received")
+            if msg_sys_status is None:
+                raise ValueError("No system status telemetry message received")
+            if msg_gps is None:
+                raise ValueError("No raw GPS telemetry message received")
 
             latitude = msg_global_position_int.lat / 1e7
             longitude = msg_global_position_int.lon / 1e7
             altitude = msg_global_position_int.alt / 1000.0
             relative_altitude = msg_global_position_int.relative_alt / 1000.0
             heading = msg_global_position_int.hdg / 100.0
-            # battery_remaining = msg_sys_status.battery_remaining
-            # gps_fix = msg_gps.fix_type
+            battery_remaining = msg_sys_status.battery_remaining
+            gps_fix = msg_gps.fix_type
             
             # Return telemetry data
             telemetry_data = Telemetry(
@@ -862,8 +862,8 @@ async def get_telemetry(master: mavutil.mavlink_connection) -> Telemetry:
                 altitude=altitude if altitude is not None else 0.0,
                 relative_altitude=relative_altitude,
                 heading=heading,
-                # battery_remaining=battery_remaining,
-                # gps_fix=gps_fix
+                battery_remaining=battery_remaining,
+                gps_fix=gps_fix
             )
             return telemetry_data
 
@@ -914,6 +914,20 @@ voice_commands = {
     "get telemetry": {"function": get_telemetry_endpoint, "params": {"drone_id": "drone_1"}},
 }
 
+# # General voice command patterns
+# voice_commands = {
+#     "connect drone": connect_drone_by_id,
+#     "connect all drones": connect_all_drones_endpoint,
+#     "start mission for drone": set_mission_endpoint,
+#     "start mission for all drones": set_mission_all_drones_endpoint,
+#     "enable fence for drone": enable_fence_endpoint,
+#     "enable fence for all drones": enable_fence_all_drones,
+#     "set rally for drone": set_rally_endpoint,
+#     "set rally for all drones": set_rally_all_drones,
+#     "get telemetry for drone": get_telemetry_endpoint,
+#     "get telemetry for all drones": get_all_telemetry,
+# }
+
 async def recognize_speech():
     r = sr.Recognizer()
     with sr.Microphone() as source:
@@ -928,6 +942,61 @@ async def recognize_speech():
     except sr.RequestError as e:
         print(f"Could not request results from Google Speech Recognition service; {e}")
     return None
+
+# def parse_command(command: str):
+#     print(f"Parsing command: {command}")  # Debug print
+
+#     words = command.split()
+
+#     # Handle "all drones" case
+#     if "all" in words and "drones" in words:
+#         if "connect" in command:
+#             return voice_commands.get("connect all drones"), {}
+#         elif "start mission for" in command:
+#             return voice_commands.get("start mission for all drones"), {"mission_name": "mission_1"}
+#         elif "enable fence for" in command:
+#             return voice_commands.get("enable fence for all drones"), {"request": FenceEnableRequest(fence_enable="ENABLE")}
+#         elif "set rally for" in command:
+#             return voice_commands.get("set rally for all drones"), {}
+#         elif "get telemetry for" in command:
+#             return voice_commands.get("get telemetry for all drones"), {}
+
+#     # Handle individual drone case
+#     if "drone" in words:
+#         drone_index = words.index("drone")
+#         drone_id = f"drone_{words[drone_index + 1]}"  # e.g., "drone_1"
+
+#         if "connect" in command:
+#             return voice_commands.get("connect drone"), {"drone_id": drone_id}
+#         elif "start mission for" in command:
+#             return voice_commands.get("start mission for drone"), {"drone_id": drone_id, "mission_name": "mission_1"}
+#         elif "enable fence for" in command:
+#             return voice_commands.get("enable fence for drone"), {"drone_id": drone_id, "request": FenceEnableRequest(fence_enable="ENABLE")}
+#         elif "set rally for" in command:
+#             return voice_commands.get("set rally for drone"), {"drone_id": drone_id}
+#         elif "get telemetry for" in command:
+#             return voice_commands.get("get telemetry for drone"), {"drone_id": drone_id}
+
+#     print("No command matched.")  # Debug print
+#     return None, None
+
+# async def trigger_action(command):
+#     function, params = parse_command(command)
+#     print(f"Function: {function}, Params: {params}")  # Debug print
+
+#     if function and params:
+#         try:
+#             # Directly await the function if it's async
+#             if asyncio.iscoroutinefunction(function):
+#                 result = await function(**params)
+#             else:
+#                 # Call the synchronous function normally
+#                 result = function(**params)
+#             print(f"Triggered {command} with result: {result}")
+#         except Exception as e:
+#             print(f"Error triggering {command}: {e}")
+#     else:
+#         print(f"Command '{command}' not found in command list.")
 
 async def trigger_action(command):
     if command in voice_commands:
