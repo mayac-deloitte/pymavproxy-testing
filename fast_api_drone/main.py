@@ -8,8 +8,12 @@ from typing import List, Optional
 import pymavlink.dialects.v20.all as dialect
 import speech_recognition as sr
 import requests
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse
 
 app = FastAPI()
+
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Load configuration from YAML
 with open("config.yaml", "r") as config_file:
@@ -1022,6 +1026,47 @@ async def trigger_voice_command():
     if command:
         await trigger_action(command)  # Await trigger_action to properly execute the coroutine
     return {"status": "Voice command processed"}
+
+# Define a dictionary that maps text commands to functions and their parameters
+text_commands = {
+    "connect drone 1": {"function": connect_drone_by_id, "params": {"drone_id": "drone_1"}},
+    "connect all drones": {"function": connect_all_drones_endpoint, "params": {}},
+    "start mission for drone 1": {"function": set_mission_endpoint, "params": {"drone_id": "drone_1", "mission_name": "mission_1"}},
+    "enable fence for drone 1": {"function": enable_fence_endpoint, "params": {"drone_id": "drone_1", "request": FenceEnableRequest(fence_enable="ENABLE")}},
+    "set rally for drone 1": {"function": set_rally_endpoint, "params": {"drone_id": "drone_1"}},
+    "get telemetry for drone 1": {"function": get_telemetry_endpoint, "params": {"drone_id": "drone_1"}},
+    # Add more command mappings as needed
+}
+
+class ChatCommand(BaseModel):
+    command: str
+
+async def trigger_action(command: str):
+    if command in text_commands:
+        command_info = text_commands[command]
+        function = command_info["function"]
+        params = command_info.get("params", {})
+
+        try:
+            if asyncio.iscoroutinefunction(function):
+                result = await function(**params)
+            else:
+                result = function(**params)
+            return {"status": "success", "result": result}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+    else:
+        return {"status": "error", "message": f"Command '{command}' not found."}
+
+@app.post("/trigger_chat_command")
+async def trigger_chat_command(command: ChatCommand):
+    response = await trigger_action(command.command.lower())
+    return response
+
+@app.get("/chatbot", response_class=HTMLResponse)
+async def get_chatbot():
+    with open("static/chatbot.html") as f:
+        return f.read()
 
 if __name__ == "__main__":
     import uvicorn

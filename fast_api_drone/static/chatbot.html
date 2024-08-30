@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chatbot Interface</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f4f4f4;
+        }
+        .chat-container {
+            width: 300px;
+            height: 500px;
+            border: 1px solid #ccc;
+            border-radius: 10px;
+            background-color: #fff;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
+        }
+        .chat-header {
+            padding: 10px;
+            background-color: #007BFF;
+            color: #fff;
+            border-radius: 10px 10px 0 0;
+            text-align: center;
+            font-size: 18px;
+        }
+        .chat-messages {
+            flex: 1;
+            padding: 10px;
+            overflow-y: auto;
+        }
+        .chat-input {
+            padding: 10px;
+            border-top: 1px solid #ccc;
+            display: flex;
+            align-items: center;
+        }
+        .chat-input input {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+        .chat-input button {
+            padding: 10px;
+            background-color: #007BFF;
+            color: #fff;
+            border: none;
+            border-radius: 5px;
+            margin-left: 5px;
+            cursor: pointer;
+        }
+        .chat-input .voice-button {
+            padding: 10px;
+            background-color: #28a745;
+            color: #fff;
+            border: none;
+            border-radius: 5px;
+            margin-left: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+        .chat-input .voice-button.listening {
+            background-color: #ffc107;
+            animation: blink 1s linear infinite;
+        }
+        @keyframes blink {
+            50% {
+                background-color: #ffb300;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<div class="chat-container">
+    <div class="chat-header">
+        Chatbot
+    </div>
+    <div class="chat-messages" id="chat-messages">
+        <!-- Messages will appear here -->
+    </div>
+    <div class="chat-input">
+        <input type="text" id="chat-input" placeholder="Type your command...">
+        <button onclick="sendMessage()">Send</button>
+        <button class="voice-button" onclick="toggleVoiceRecognition()">🎤</button>
+    </div>
+</div>
+
+<script>
+    let recognition;
+    let isListening = false;
+
+    // Add event listener to detect Enter key press
+    document.getElementById('chat-input').addEventListener('keydown', function(event) {
+        if (event.key === 'Enter') {
+            sendMessage(); // Trigger sendMessage when Enter is pressed
+        }
+    });
+
+    async function sendMessage() {
+        const inputElement = document.getElementById('chat-input');
+        const chatMessages = document.getElementById('chat-messages');
+        const userMessage = inputElement.value;
+        inputElement.value = ''; // Clear the input
+
+        // Display the message in the chat window
+        if (userMessage) {
+            const userMessageElement = document.createElement('div');
+            userMessageElement.textContent = 'You: ' + userMessage;
+            chatMessages.appendChild(userMessageElement);
+        }
+
+        // Send the message to the backend
+        const response = await fetch('http://localhost:8000/trigger_chat_command', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ command: userMessage })
+        });
+
+        const result = await response.json();
+
+        // Display the response from the backend
+        const botMessage = document.createElement('div');
+        botMessage.textContent = 'Bot: ' + JSON.stringify(result);
+        chatMessages.appendChild(botMessage);
+
+        // Scroll to the bottom of the chat
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function toggleVoiceRecognition() {
+        if (isListening) {
+            stopVoiceRecognition();
+        } else {
+            startVoiceRecognition();
+        }
+    }
+
+    function startVoiceRecognition() {
+        if (!('webkitSpeechRecognition' in window)) {
+            alert('Your browser does not support voice recognition. Please use Google Chrome.');
+            return;
+        }
+
+        recognition = new webkitSpeechRecognition();
+        recognition.lang = 'en-US';
+        recognition.interimResults = true; // Set to true to get real-time feedback
+        recognition.maxAlternatives = 1;
+
+        recognition.onstart = function() {
+            console.log('Voice recognition started. Speak into the microphone.');
+            isListening = true;
+            updateVoiceButtonState();
+        };
+
+        recognition.onresult = function(event) {
+            const inputElement = document.getElementById('chat-input');
+            const transcript = event.results[0][0].transcript;
+            inputElement.value = transcript; // Display the recognized text in the input field
+            console.log('Voice command recognized: ', transcript);
+        };
+
+        recognition.onerror = function(event) {
+            console.log('Error occurred in recognition: ', event.error);
+            stopVoiceRecognition();
+        };
+
+        recognition.onend = function() {
+            console.log('Voice recognition ended.');
+            stopVoiceRecognition();
+        };
+
+        recognition.start();
+    }
+
+    function stopVoiceRecognition() {
+        if (recognition) {
+            recognition.stop();
+        }
+        isListening = false;
+        updateVoiceButtonState();
+    }
+
+    function updateVoiceButtonState() {
+        const voiceButton = document.querySelector('.voice-button');
+        if (isListening) {
+            voiceButton.classList.add('listening');
+        } else {
+            voiceButton.classList.remove('listening');
+        }
+    }
+</script>
+
+</body>
+</html>
