@@ -33,6 +33,7 @@ class Telemetry(BaseModel):
     latitude: float
     longitude: float
     altitude: float
+    velocity: float
     relative_altitude: Optional[float] = None
     heading: Optional[float] = None
     battery_remaining: Optional[float] = None
@@ -840,8 +841,8 @@ async def get_telemetry(master: mavutil.mavlink_connection) -> Telemetry:
         
         while True:
             
-            msg_global_position_int = master.recv_match(type=dialect.MAVLink_global_position_int_message.msgname, blocking=True)
-            msg_sys_status = master.recv_match(type=dialect.MAVLink_battery_status_message.msgname, blocking=True)
+            msg_global_position_int = master.recv_match(type=dialect.MAVLink_global_position_int_message.msgname)
+            msg_sys_status = master.recv_match(type=dialect.MAVLink_battery_status_message.msgname)
             msg_gps = master.recv_match(type=dialect.MAVLink_gps_raw_int_message.msgname)
 
             if msg_global_position_int is None:
@@ -856,6 +857,7 @@ async def get_telemetry(master: mavutil.mavlink_connection) -> Telemetry:
             altitude = msg_global_position_int.alt / 1000.0
             relative_altitude = msg_global_position_int.relative_alt / 1000.0
             heading = msg_global_position_int.hdg / 100.0
+            velocity = msg_gps.vel / 100.0
             battery_remaining = msg_sys_status.battery_remaining
             gps_fix = msg_gps.fix_type
             
@@ -864,6 +866,7 @@ async def get_telemetry(master: mavutil.mavlink_connection) -> Telemetry:
                 latitude=latitude if latitude is not None else 0.0,
                 longitude=longitude if longitude is not None else 0.0,
                 altitude=altitude if altitude is not None else 0.0,
+                velocity=velocity if velocity is not None else 0.0,
                 relative_altitude=relative_altitude,
                 heading=heading,
                 battery_remaining=battery_remaining,
