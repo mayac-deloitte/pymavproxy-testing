@@ -1,13 +1,12 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel
 from pymavlink import mavutil
 import time
 import asyncio
 import yaml
-from typing import List, Optional
+from typing import List, Optional, Dict
 import pymavlink.dialects.v20.all as dialect
 import speech_recognition as sr
-import requests
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 
@@ -15,13 +14,16 @@ app = FastAPI()
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# Load configuration from YAML
-with open("config.yaml", "r") as config_file:
-    config = yaml.safe_load(config_file)
+# Dependency to load and provide the configuration
+def get_config():
+    with open("config.yaml", "r") as config_file:
+        return yaml.safe_load(config_file)
 
-# Access the configuration
-drone_connections = {}
-separation_time= config["settings"]["separation_time"]
+# Dependency to manage drone connections
+drone_connections: Dict[str, mavutil.mavlink_connection] = {}
+
+def get_drone_connections():
+    return drone_connections
 
 class Waypoint(BaseModel):
     latitude: float
@@ -50,7 +52,7 @@ class ConnectDroneRequest(BaseModel):
 class FenceEnableRequest(BaseModel):
     fence_enable: str
 
-def connect_drone_by_id(drone_id: str):
+def connect_drone_by_id(drone_id: str, config: Dict, drone_connections: Dict):
     """Function to connect to a drone by its ID."""
     try:
         connection_string = config["drones"][drone_id]
@@ -65,19 +67,19 @@ def connect_drone_by_id(drone_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/connect_drone")
-async def connect_drone_endpoint(request: ConnectDroneRequest):
+async def connect_drone_endpoint(request: ConnectDroneRequest, config: Dict = Depends(get_config), drone_connections: Dict = Depends(get_drone_connections)):
     """Endpoint to connect to a single drone by ID."""
-    return connect_drone_by_id(request.drone_id)
+    return connect_drone_by_id(request.drone_id, config, drone_connections)
 
 @app.post("/connect_all_drones")
-async def connect_all_drones_endpoint():
+async def connect_all_drones_endpoint(config: Dict = Depends(get_config), drone_connections: Dict = Depends(get_drone_connections)):
     """Endpoint to connect to all drones specified in the config."""
     connected_drones = []
     failed_drones = []
 
     for drone_id in config["drones"]:
         try:
-            response = connect_drone_by_id(drone_id)
+            response = connect_drone_by_id(drone_id, config, drone_connections)
             connected_drones.append(drone_id)
         except HTTPException as e:
             failed_drones.append({"drone_id": drone_id, "error": str(e)})
@@ -91,16 +93,14 @@ async def connect_all_drones_endpoint():
     else:
         return {"status": "All drones connected successfully", "connected_drones": connected_drones}
 
-def set_mode(master, flight_mode: str):
-
-    # get supported flight modes
+async def set_mode(master, flight_mode: str):
+    # Get supported flight modes
     flight_modes = master.mode_mapping()
 
-    if flight_mode not in flight_modes.keys():
-        print(flight_mode, "is not supported")
-        exit(1)
+    if flight_mode not in flight_modes:
+        raise RuntimeError(f"{flight_mode} is not supported")
 
-    # create change mode message
+    # Create change mode message
     set_mode_message = dialect.MAVLink_command_long_message(
         target_system=master.target_system,
         target_component=master.target_component,
@@ -115,156 +115,145 @@ def set_mode(master, flight_mode: str):
         param7=0
     )
 
-    message = master.recv_match(type=dialect.MAVLink_heartbeat_message.msgname, blocking=True)
-    message = message.to_dict()
-    mode_id = message["custom_mode"]
-
-    # get mode name
-    flight_mode_names = list(flight_modes.keys())
-    flight_mode_ids = list(flight_modes.values())
-    flight_mode_index = flight_mode_ids.index(mode_id)
-    flight_mode_name_before = flight_mode_names[flight_mode_index]
-
-    # change flight mode
+    # Send the mode change message
     master.mav.send(set_mode_message)
 
-    # do below always
-    while True:
-        message = master.recv_match(type=dialect.MAVLink_command_ack_message.msgname, blocking=True)
-        message = message.to_dict()
+    try:
+        # Use asyncio.to_thread to run the blocking recv_match call in a non-blocking way
+        mav_message = await asyncio.to_thread(
+            master.recv_match, type=dialect.MAVLink_command_ack_message.msgname, blocking=True
+        )
 
-        # check is the COMMAND_ACK is for DO_SET_MODE
+        # Convert the MAVLink message to a dictionary
+        message = mav_message.to_dict()
+
         if message["command"] == dialect.MAV_CMD_DO_SET_MODE:
             if message["result"] == dialect.MAV_RESULT_ACCEPTED:
-                result = "accepted"
+                print(f"Changing mode to {flight_mode} accepted by the vehicle")
+                return "accepted"
             else:
-                result = "failed"
-            break
+                print(f"Changing mode to {flight_mode} failed")
+                return "failed"
 
-    # catch HEARTBEAT message
-    message = master.recv_match(type=dialect.MAVLink_heartbeat_message.msgname, blocking=True)
-    message = message.to_dict()
-    mode_id = message["custom_mode"]
-
-    # get mode name
-    flight_mode_names = list(flight_modes.keys())
-    flight_mode_ids = list(flight_modes.values())
-    flight_mode_index = flight_mode_ids.index(mode_id)
-    flight_mode_name = flight_mode_names[flight_mode_index]
-
-    return flight_mode_name_before, flight_mode_name, result
+    except asyncio.TimeoutError:
+        print(f"Timeout while waiting for mode change to {flight_mode}")
+        return "timeout"
 
 @app.post("/update_drone_mode/{drone_id}/{flight_mode}")
-async def update_drone_mode_endpoint(drone_id: str, flight_mode: str):
+async def update_drone_mode_endpoint(drone_id: str, flight_mode: str, drone_connections: Dict = Depends(get_drone_connections)):
     master = drone_connections.get(drone_id)
     if not master:
         raise HTTPException(status_code=404, detail=f"Drone with ID {drone_id} not found")
     
     try:
-        mode_before, mode_after, result = set_mode(master, flight_mode.upper())
+        result = await set_mode(master, flight_mode.upper())
         if result == "accepted":
             return {
-                "status": f"Mode change successful: {mode_before} -> {mode_after}"
+                "status": f"Mode change to {flight_mode.upper()} successful for drone {drone_id}"
+            }
+        elif result == "timeout":
+            return {
+                "status": f"Timeout while changing mode to {flight_mode.upper()} for drone {drone_id}"
             }
         else:
-            raise HTTPException(status_code=500, detail=f"Mode change failed: {mode_before} -> {mode_after}")
+            return {
+                "status": f"Mode change to {flight_mode.upper()} failed for drone {drone_id}"
+            }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-def set_mission_and_start(master, target_locations: List[Waypoint]):
+async def set_mission_and_start(master, target_locations: List[Waypoint]):
+    # Send the mission count message asynchronously
+    await asyncio.to_thread(master.mav.send, dialect.MAVLink_mission_count_message(
+        target_system=master.target_system,
+        target_component=master.target_component,
+        count=len(target_locations) + 2,
+        mission_type=dialect.MAV_MISSION_TYPE_MISSION
+    ))
 
-    message = dialect.MAVLink_mission_count_message(target_system=master.target_system,
-                                                    target_component=master.target_component,
-                                                    count=len(target_locations) + 2,
-                                                    mission_type=dialect.MAV_MISSION_TYPE_MISSION)
-    
-    master.mav.send(message)
-
-    # this loop will run until receive a valid MISSION_ACK message
+    # Loop until we receive a valid MISSION_ACK message
     while True:
-        message = master.recv_match(blocking=True)
+        message = await asyncio.to_thread(master.recv_match, blocking=True)
         message = message.to_dict()
+
         if message["mavpackettype"] == dialect.MAVLink_mission_request_message.msgname:
             if message["mission_type"] == dialect.MAV_MISSION_TYPE_MISSION:
-
                 seq = message["seq"]
 
-                # create mission item int message
+                # Create the appropriate mission item message
                 if seq == 0:
-                    # create mission item int message that contains the home location (0th mission item)
-                    message = dialect.MAVLink_mission_item_int_message(target_system=master.target_system,
-                                                                    target_component=master.target_component,
-                                                                    seq=seq,
-                                                                    frame=dialect.MAV_FRAME_GLOBAL,
-                                                                    command=dialect.MAV_CMD_NAV_WAYPOINT,
-                                                                    current=0,
-                                                                    autocontinue=0,
-                                                                    param1=0,
-                                                                    param2=0,
-                                                                    param3=0,
-                                                                    param4=0,
-                                                                    x=0,
-                                                                    y=0,
-                                                                    z=0,
-                                                                    mission_type=dialect.MAV_MISSION_TYPE_MISSION)
-
-                # send takeoff mission item
+                    mission_item_message = dialect.MAVLink_mission_item_int_message(
+                        target_system=master.target_system,
+                        target_component=master.target_component,
+                        seq=seq,
+                        frame=dialect.MAV_FRAME_GLOBAL,
+                        command=dialect.MAV_CMD_NAV_WAYPOINT,
+                        current=0,
+                        autocontinue=0,
+                        param1=0,
+                        param2=0,
+                        param3=0,
+                        param4=0,
+                        x=0,
+                        y=0,
+                        z=0,
+                        mission_type=dialect.MAV_MISSION_TYPE_MISSION
+                    )
                 elif seq == 1:
-                    # create mission item int message that contains the takeoff command
-                    message = dialect.MAVLink_mission_item_int_message(target_system=master.target_system,
-                                                                    target_component=master.target_component,
-                                                                    seq=seq,
-                                                                    frame=dialect.MAV_FRAME_GLOBAL_RELATIVE_ALT,
-                                                                    command=dialect.MAV_CMD_NAV_TAKEOFF,
-                                                                    current=0,
-                                                                    autocontinue=0,
-                                                                    param1=0,
-                                                                    param2=0,
-                                                                    param3=0,
-                                                                    param4=0,
-                                                                    x=0,
-                                                                    y=0,
-                                                                    z=target_locations[0].altitude,
-                                                                    mission_type=dialect.MAV_MISSION_TYPE_MISSION)
-
-                # send target locations to the vehicle
+                    mission_item_message = dialect.MAVLink_mission_item_int_message(
+                        target_system=master.target_system,
+                        target_component=master.target_component,
+                        seq=seq,
+                        frame=dialect.MAV_FRAME_GLOBAL_RELATIVE_ALT,
+                        command=dialect.MAV_CMD_NAV_TAKEOFF,
+                        current=0,
+                        autocontinue=0,
+                        param1=0,
+                        param2=0,
+                        param3=0,
+                        param4=0,
+                        x=0,
+                        y=0,
+                        z=target_locations[0].altitude,
+                        mission_type=dialect.MAV_MISSION_TYPE_MISSION
+                    )
                 else:
                     waypoint = target_locations[seq - 2]  # Adjust for home and takeoff locations
-                    # create mission item int message that contains a target location
-                    message = dialect.MAVLink_mission_item_int_message(target_system=master.target_system,
-                                                                    target_component=master.target_component,
-                                                                    seq=seq,
-                                                                    frame=dialect.MAV_FRAME_GLOBAL_RELATIVE_ALT,
-                                                                    command=dialect.MAV_CMD_NAV_WAYPOINT,
-                                                                    current=0,
-                                                                    autocontinue=0,
-                                                                    param1=0,
-                                                                    param2=0,
-                                                                    param3=0,
-                                                                    param4=0,
-                                                                    x=max(min(int(waypoint.latitude * 1e7), 2147483647), -2147483648), # Ensure valid range for a 32-bit signed integer using
-                                                                    y=max(min(int(waypoint.longitude * 1e7), 2147483647), -2147483648),
-                                                                    z=waypoint.altitude,
-                                                                    mission_type=dialect.MAV_MISSION_TYPE_MISSION)
+                    mission_item_message = dialect.MAVLink_mission_item_int_message(
+                        target_system=master.target_system,
+                        target_component=master.target_component,
+                        seq=seq,
+                        frame=dialect.MAV_FRAME_GLOBAL_RELATIVE_ALT,
+                        command=dialect.MAV_CMD_NAV_WAYPOINT,
+                        current=0,
+                        autocontinue=0,
+                        param1=0,
+                        param2=0,
+                        param3=0,
+                        param4=0,
+                        x=max(min(int(waypoint.latitude * 1e7), 2147483647), -2147483648),
+                        y=max(min(int(waypoint.longitude * 1e7), 2147483647), -2147483648),
+                        z=waypoint.altitude,
+                        mission_type=dialect.MAV_MISSION_TYPE_MISSION
+                    )
 
-                # send the mission item int message to the vehicle
-                master.mav.send(message)
+                # Send the mission item message asynchronously
+                await asyncio.to_thread(master.mav.send, mission_item_message)
 
-        # check this message is MISSION_ACK
+        # Check if the message is MISSION_ACK
         elif message["mavpackettype"] == dialect.MAVLink_mission_ack_message.msgname:
-            if message["mission_type"] == dialect.MAV_MISSION_TYPE_MISSION and \
-                    message["type"] == dialect.MAV_MISSION_ACCEPTED:
+            if message["mission_type"] == dialect.MAV_MISSION_TYPE_MISSION and message["type"] == dialect.MAV_MISSION_ACCEPTED:
                 print("Mission upload is successful")
                 break
 
-    # desired flight mode
+    # Set flight mode to AUTO
     FLIGHT_MODE = "AUTO"
     flight_modes = master.mode_mapping()
-    if FLIGHT_MODE not in flight_modes.keys():
-        print(FLIGHT_MODE, "is not supported")
-        exit(1)
 
-    # create change mode message
+    if FLIGHT_MODE not in flight_modes:
+        raise RuntimeError(f"{FLIGHT_MODE} is not supported")
+
+    # Create and send the change mode message
     set_mode_message = dialect.MAVLink_command_long_message(
         target_system=master.target_system,
         target_component=master.target_component,
@@ -279,80 +268,26 @@ def set_mission_and_start(master, target_locations: List[Waypoint]):
         param7=0
     )
 
-    # inform user
-    print("Connected to system:", master.target_system, ", component:", master.target_component)
+    await asyncio.to_thread(master.mav.send, set_mode_message)
 
-    message = master.recv_match(type=dialect.MAVLink_heartbeat_message.msgname, blocking=True)
-    message = message.to_dict()
-    mode_id = message["custom_mode"]
-
-    # get mode name
-    flight_mode_names = list(flight_modes.keys())
-    flight_mode_ids = list(flight_modes.values())
-    flight_mode_index = flight_mode_ids.index(mode_id)
-    flight_mode_name = flight_mode_names[flight_mode_index]
-
-    # print mode name
-    print("Mode name before:", flight_mode_name)
-
-    # change flight mode
-    master.mav.send(set_mode_message)
-
-    # do below always
+    # Wait for mode change acknowledgment
     while True:
-        message = master.recv_match(type=dialect.MAVLink_command_ack_message.msgname, blocking=True)
+        message = await asyncio.to_thread(master.recv_match, type=dialect.MAVLink_command_ack_message.msgname, blocking=True)
         message = message.to_dict()
         if message["command"] == dialect.MAV_CMD_DO_SET_MODE:
             if message["result"] == dialect.MAV_RESULT_ACCEPTED:
-                print("Changing mode to", FLIGHT_MODE, "accepted from the vehicle")
+                print(f"Changing mode to {FLIGHT_MODE} accepted by the vehicle")
             else:
-                print("Changing mode to", FLIGHT_MODE, "failed")
+                print(f"Changing mode to {FLIGHT_MODE} failed")
             break
 
-    message = master.recv_match(type=dialect.MAVLink_heartbeat_message.msgname, blocking=True)
-    message = message.to_dict()
-    mode_id = message["custom_mode"]
-
-    # get mode name
-    flight_mode_names = list(flight_modes.keys())
-    flight_mode_ids = list(flight_modes.values())
-    flight_mode_index = flight_mode_ids.index(mode_id)
-    flight_mode_name = flight_mode_names[flight_mode_index]
-
-    # print mode name
-    print("Mode name after:", flight_mode_name)
-
-    # Create and send PARAM_SET message to set AUTO_OPTIONS to 7
-    PARAM_NAME = "AUTO_OPTIONS"
-
-    parameter_set_message = dialect.MAVLink_param_set_message(
-        target_system=master.target_system,
-        target_component=master.target_component,
-        param_id=PARAM_NAME.encode("utf-8"),  # Encode to bytes as required by MAVLink
-        param_value=int(7),  # Set AUTO_OPTIONS to 7
-        param_type=dialect.MAV_PARAM_TYPE_REAL32
-    )
-
-    master.mav.send(parameter_set_message)
-    print(f"Sent request to set {PARAM_NAME} to 7")
-
-    # Verify that the parameter was set correctly
-    while True:
-        # Receive PARAM_VALUE messages
-        message = master.recv_match(type="PARAM_VALUE", blocking=True).to_dict()
-
-        # Check if the parameter is AUTO_OPTIONS
-        if message["param_id"].strip('\x00') == PARAM_NAME:  # Strip null characters
-            print(f"{message['param_id']} = {message['param_value']}")
-            break
-
-    # vehicle arm message
+    # Arm the vehicle
     vehicle_arm_message = dialect.MAVLink_command_long_message(
         target_system=master.target_system,
         target_component=master.target_component,
         command=dialect.MAV_CMD_COMPONENT_ARM_DISARM,
         confirmation=0,
-        param1=1, # VEHICLE_ARM
+        param1=1,  # VEHICLE_ARM
         param2=0,
         param3=0,
         param4=0,
@@ -364,8 +299,8 @@ def set_mission_and_start(master, target_locations: List[Waypoint]):
     # Attempt to arm the vehicle
     while True:
         print("Attempting to arm the vehicle...")
-        master.mav.send(vehicle_arm_message)
-        ack_message = master.recv_match(type=dialect.MAVLink_command_ack_message.msgname, blocking=True)
+        await asyncio.to_thread(master.mav.send, vehicle_arm_message)
+        ack_message = await asyncio.to_thread(master.recv_match, type=dialect.MAVLink_command_ack_message.msgname, blocking=True)
         ack_message = ack_message.to_dict()
 
         # Check if the arm command was accepted
@@ -374,7 +309,7 @@ def set_mission_and_start(master, target_locations: List[Waypoint]):
 
             # Monitor the heartbeat for arming status
             while True:
-                heartbeat = master.recv_match(type=dialect.MAVLink_heartbeat_message.msgname, blocking=True)
+                heartbeat = await asyncio.to_thread(master.recv_match, type=dialect.MAVLink_heartbeat_message.msgname, blocking=True)
                 heartbeat = heartbeat.to_dict()
 
                 # Check if the vehicle is armed
@@ -385,24 +320,28 @@ def set_mission_and_start(master, target_locations: List[Waypoint]):
         else:
             print("Failed to arm the vehicle. Retrying...")
 
-        time.sleep(10)
+        await asyncio.sleep(10)  # Sleep for a while before retrying
 
 @app.post("/set_mission/{drone_id}")
-async def set_mission_endpoint(drone_id: str, mission_name: str):
+async def set_mission_endpoint(drone_id: str, mission_name: str, config: Dict = Depends(get_config), drone_connections: Dict = Depends(get_drone_connections)):
     try:
-        # Load the waypoints for the specified mission from the config
         if mission_name not in config["waypoints"]:
             raise HTTPException(status_code=404, detail=f"Mission '{mission_name}' not found in config")
         
         mission_waypoints = [Waypoint(**wp) for wp in config["waypoints"][mission_name]]
         master = drone_connections.get(drone_id)
-        set_mission_and_start(master, mission_waypoints)
+        if not master:
+            raise HTTPException(status_code=404, detail=f"Drone with ID {drone_id} not found")
+
+        # This is correct, assuming set_mission_and_start is async
+        await set_mission_and_start(master, mission_waypoints)
+
         return {"status": f"Mission '{mission_name}' auto mode set successfully for drone '{drone_id}' and is armed"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to set mission auto mode: {str(e)}")
 
 @app.post("/set_mission_all_drones/{mission_name}")
-async def set_mission_all_drones_endpoint(mission_name: str):
+async def set_mission_all_drones_endpoint(mission_name: str, config: Dict = Depends(get_config), drone_connections: Dict = Depends(get_drone_connections)):
     successful_drones = []
     failed_drones = []
 
@@ -413,11 +352,13 @@ async def set_mission_all_drones_endpoint(mission_name: str):
                 raise HTTPException(status_code=404, detail=f"Mission '{mission_name}' not found in config")
             
             mission_waypoints = [Waypoint(**wp) for wp in config["waypoints"][mission_name]]
-            set_mission_and_start(master, mission_waypoints)
+            
+            # Await the mission setting for each drone
+            await set_mission_and_start(master, mission_waypoints)
             successful_drones.append(drone_id)
 
             # Add a delay between missions
-            await asyncio.sleep(separation_time)
+            await asyncio.sleep(config["settings"]["separation_time"])
 
         except Exception as e:
             failed_drones.append({"drone_id": drone_id, "error": str(e)})
@@ -432,16 +373,16 @@ async def set_mission_all_drones_endpoint(mission_name: str):
         return {"status": "Mission set successfully for all drones", "successful_drones": successful_drones}
 
 async def set_fence(master, fence_coordinates: List[List[float]]):
-
-    # introduce FENCE_TOTAL and FENCE_ACTION as byte array and do not use parameter index
+    # introduce FENCE_TOTAL and FENCE_ACTION as byte arrays
     FENCE_TOTAL = "FENCE_TOTAL".encode(encoding="utf-8")
     FENCE_ACTION = "FENCE_ACTION".encode(encoding="utf8")
     PARAM_INDEX = -1
 
+    # Request FENCE_ACTION parameter
     message = dialect.MAVLink_param_request_read_message(target_system=master.target_system,
-                                                        target_component=master.target_component,
-                                                        param_id=FENCE_ACTION,
-                                                        param_index=PARAM_INDEX)
+                                                         target_component=master.target_component,
+                                                         param_id=FENCE_ACTION,
+                                                         param_index=PARAM_INDEX)
     master.mav.send(message)
 
     while True:
@@ -454,6 +395,7 @@ async def set_fence(master, fence_coordinates: List[List[float]]):
 
     print("FENCE_ACTION parameter original:", fence_action_original)
 
+    # Set FENCE_ACTION to none
     while True:
         message = dialect.MAVLink_param_set_message(target_system=master.target_system,
                                                     target_component=master.target_component,
@@ -471,6 +413,7 @@ async def set_fence(master, fence_coordinates: List[List[float]]):
             else:
                 print("Failed to reset FENCE_ACTION to 0, trying again")
 
+    # Reset FENCE_TOTAL to 0
     while True:
         message = dialect.MAVLink_param_set_message(target_system=master.target_system,
                                                     target_component=master.target_component,
@@ -488,6 +431,7 @@ async def set_fence(master, fence_coordinates: List[List[float]]):
             else:
                 print("Failed to reset FENCE_TOTAL to 0")
 
+    # Set FENCE_TOTAL to the number of fence coordinates
     while True:
         message = dialect.MAVLink_param_set_message(target_system=master.target_system,
                                                     target_component=master.target_component,
@@ -500,21 +444,20 @@ async def set_fence(master, fence_coordinates: List[List[float]]):
         message = message.to_dict()
         if message["param_id"] == "FENCE_TOTAL":
             if int(message["param_value"]) == len(fence_coordinates):
-                print("FENCE_TOTAL set to {0} successfully".format(len(fence_coordinates)))
+                print(f"FENCE_TOTAL set to {len(fence_coordinates)} successfully")
                 break
             else:
-                print("Failed to set FENCE_TOTAL to {0}".format(len(fence_coordinates)))
-                
-    idx = 0
+                print(f"Failed to set FENCE_TOTAL to {len(fence_coordinates)}")
 
-    # run until all the fence items uploaded successfully
+    # Upload fence points
+    idx = 0
     while idx < len(fence_coordinates):
         message = dialect.MAVLink_fence_point_message(target_system=master.target_system,
-                                                    target_component=master.target_component,
-                                                    idx=idx,
-                                                    count=len(fence_coordinates),
-                                                    lat=fence_coordinates[idx][0],
-                                                    lng=fence_coordinates[idx][1])
+                                                      target_component=master.target_component,
+                                                      idx=idx,
+                                                      count=len(fence_coordinates),
+                                                      lat=fence_coordinates[idx][0],
+                                                      lng=fence_coordinates[idx][1])
         master.mav.send(message)
 
         message = dialect.MAVLink_fence_fetch_point_message(target_system=master.target_system,
@@ -533,6 +476,7 @@ async def set_fence(master, fence_coordinates: List[List[float]]):
 
     print("All the fence items uploaded successfully")
 
+    # Reset FENCE_ACTION to the original value
     while True:
         message = dialect.MAVLink_param_set_message(target_system=master.target_system,
                                                     target_component=master.target_component,
@@ -546,15 +490,15 @@ async def set_fence(master, fence_coordinates: List[List[float]]):
 
         if message["param_id"] == "FENCE_ACTION":
             if int(message["param_value"]) == fence_action_original:
-                print("FENCE_ACTION set to original value {0} successfully".format(fence_action_original))
+                print(f"FENCE_ACTION set to original value {fence_action_original} successfully")
                 break
             else:
-                print("Failed to set FENCE_ACTION to original value {0} ".format(fence_action_original))
+                print(f"Failed to set FENCE_ACTION to original value {fence_action_original}")
 
 @app.post("/set_fence/{drone_id}")
-async def set_fence_endpoint(drone_id: str):
+async def set_fence_endpoint(drone_id: str, config: Dict = Depends(get_config), drone_connections: Dict = Depends(get_drone_connections)):
     try:
-        # Get the drone connection from the global dictionary
+        # Get the drone connection from the dependency
         master = drone_connections.get(drone_id)
         if not master:
             raise HTTPException(status_code=404, detail=f"Drone with ID {drone_id} not found")
@@ -573,7 +517,7 @@ async def set_fence_endpoint(drone_id: str):
         raise HTTPException(status_code=500, detail=f"Failed to set geofence: {str(e)}")
 
 @app.post("/set_fence_all_drones")
-async def set_fence_all_drones():
+async def set_fence_all_drones(config: Dict = Depends(get_config), drone_connections: Dict = Depends(get_drone_connections)):
     successful_drones = []
     failed_drones = []
 
@@ -600,7 +544,7 @@ async def set_fence_all_drones():
         return {"status": "Fence set successfully for all drones", "successful_drones": successful_drones}
 
 @app.post("/enable_fence/{drone_id}")
-async def enable_fence_endpoint(drone_id: str, request: FenceEnableRequest):
+async def enable_fence_endpoint(drone_id: str, request: FenceEnableRequest, drone_connections: Dict = Depends(get_drone_connections)):
 
     fence_enable_definition = {
         "DISABLE": 0,
@@ -636,7 +580,7 @@ async def enable_fence_endpoint(drone_id: str, request: FenceEnableRequest):
         raise HTTPException(status_code=500, detail=f"Failed to send fence command: {str(e)}")
 
 @app.post("/enable_fence_all_drones")
-async def enable_fence_all_drones(request: FenceEnableRequest):
+async def enable_fence_all_drones(request: FenceEnableRequest, drone_connections: Dict = Depends(get_drone_connections)):
     """
     Enable the fence for all drones with the specified mode (ENABLE, DISABLE, DISABLE_FLOOR_ONLY).
     """
@@ -779,21 +723,21 @@ async def set_rally(master, rally_coordinates: List[List[float]]):
 
     print("All the rally point items uploaded successfully")
 
-@app.post("/set_rally_point/{drone_id}")
-async def set_rally_endpoint(drone_id: str):
+@app.post("/set_rally/{drone_id}")
+async def set_rally_endpoint(drone_id: str, config: Dict = Depends(get_config), drone_connections: Dict = Depends(get_drone_connections)):
     try:
         # Get the drone connection from the global dictionary
         master = drone_connections.get(drone_id)
         if not master:
             raise HTTPException(status_code=404, detail=f"Drone with ID {drone_id} not found")
         
-        # Load the fence coordinates from the config file
+        # Load the rally coordinates from the config file
         if "rally" not in config or "coordinates" not in config["rally"]:
             raise HTTPException(status_code=404, detail="Rally coordinates not found in config file")
         
         rally_coordinates = config["rally"]["coordinates"]
         
-        # Set the fence using the loaded coordinates
+        # Set the rally points using the loaded coordinates
         await set_rally(master, rally_coordinates)
         
         return {"status": f"Rally points set successfully for drone '{drone_id}'"}
@@ -801,7 +745,7 @@ async def set_rally_endpoint(drone_id: str):
         raise HTTPException(status_code=500, detail=f"Failed to set rally points: {str(e)}")
 
 @app.post("/set_rally_all_drones")
-async def set_rally_all_drones():
+async def set_rally_all_drones(config: Dict = Depends(get_config), drone_connections: Dict = Depends(get_drone_connections)):
     successful_drones = []
     failed_drones = []
 
@@ -879,8 +823,7 @@ async def get_telemetry(master: mavutil.mavlink_connection) -> Telemetry:
         raise
 
 @app.get("/get_telemetry/{drone_id}", response_model=Telemetry)
-async def get_telemetry_endpoint(drone_id: str):
-    connect_drone_by_id(drone_id)
+async def get_telemetry_endpoint(drone_id: str, drone_connections: Dict = Depends(get_drone_connections)):
     master = drone_connections.get(drone_id)
     if not master:
         raise HTTPException(status_code=404, detail=f"Drone with ID {drone_id} not found")
@@ -892,11 +835,10 @@ async def get_telemetry_endpoint(drone_id: str):
         raise HTTPException(status_code=500, detail=str(e))
     
 @app.get("/get_all_telemetry", response_model=List[DroneTelemetryResponse])
-async def get_all_telemetry():
+async def get_all_telemetry(drone_connections: Dict = Depends(get_drone_connections)):
     all_telemetry = []
     
     for drone_id, master in drone_connections.items():
-        connect_drone_by_id(drone_id)
         try:
             telemetry = await get_telemetry(master)
             all_telemetry.append({
@@ -921,91 +863,7 @@ voice_commands = {
     "get telemetry": {"function": get_telemetry_endpoint, "params": {"drone_id": "drone_1"}},
 }
 
-# # General voice command patterns
-# voice_commands = {
-#     "connect drone": connect_drone_by_id,
-#     "connect all drones": connect_all_drones_endpoint,
-#     "start mission for drone": set_mission_endpoint,
-#     "start mission for all drones": set_mission_all_drones_endpoint,
-#     "enable fence for drone": enable_fence_endpoint,
-#     "enable fence for all drones": enable_fence_all_drones,
-#     "set rally for drone": set_rally_endpoint,
-#     "set rally for all drones": set_rally_all_drones,
-#     "get telemetry for drone": get_telemetry_endpoint,
-#     "get telemetry for all drones": get_all_telemetry,
-# }
-
-async def recognize_speech():
-    r = sr.Recognizer()
-    with sr.Microphone() as source:
-        print("Say something!")
-        audio = r.listen(source)
-    try:
-        command = r.recognize_google(audio).lower()
-        print(f"Command recognized: {command}")
-        return command
-    except sr.UnknownValueError:
-        print("Google Speech Recognition could not understand audio")
-    except sr.RequestError as e:
-        print(f"Could not request results from Google Speech Recognition service; {e}")
-    return None
-
-# def parse_command(command: str):
-#     print(f"Parsing command: {command}")  # Debug print
-
-#     words = command.split()
-
-#     # Handle "all drones" case
-#     if "all" in words and "drones" in words:
-#         if "connect" in command:
-#             return voice_commands.get("connect all drones"), {}
-#         elif "start mission for" in command:
-#             return voice_commands.get("start mission for all drones"), {"mission_name": "mission_1"}
-#         elif "enable fence for" in command:
-#             return voice_commands.get("enable fence for all drones"), {"request": FenceEnableRequest(fence_enable="ENABLE")}
-#         elif "set rally for" in command:
-#             return voice_commands.get("set rally for all drones"), {}
-#         elif "get telemetry for" in command:
-#             return voice_commands.get("get telemetry for all drones"), {}
-
-#     # Handle individual drone case
-#     if "drone" in words:
-#         drone_index = words.index("drone")
-#         drone_id = f"drone_{words[drone_index + 1]}"  # e.g., "drone_1"
-
-#         if "connect" in command:
-#             return voice_commands.get("connect drone"), {"drone_id": drone_id}
-#         elif "start mission for" in command:
-#             return voice_commands.get("start mission for drone"), {"drone_id": drone_id, "mission_name": "mission_1"}
-#         elif "enable fence for" in command:
-#             return voice_commands.get("enable fence for drone"), {"drone_id": drone_id, "request": FenceEnableRequest(fence_enable="ENABLE")}
-#         elif "set rally for" in command:
-#             return voice_commands.get("set rally for drone"), {"drone_id": drone_id}
-#         elif "get telemetry for" in command:
-#             return voice_commands.get("get telemetry for drone"), {"drone_id": drone_id}
-
-#     print("No command matched.")  # Debug print
-#     return None, None
-
-# async def trigger_action(command):
-#     function, params = parse_command(command)
-#     print(f"Function: {function}, Params: {params}")  # Debug print
-
-#     if function and params:
-#         try:
-#             # Directly await the function if it's async
-#             if asyncio.iscoroutinefunction(function):
-#                 result = await function(**params)
-#             else:
-#                 # Call the synchronous function normally
-#                 result = function(**params)
-#             print(f"Triggered {command} with result: {result}")
-#         except Exception as e:
-#             print(f"Error triggering {command}: {e}")
-#     else:
-#         print(f"Command '{command}' not found in command list.")
-
-async def trigger_action(command):
+async def trigger_action(command: str, drone_connections: Dict = Depends(get_drone_connections), config: Dict = Depends(get_config)):
     if command in voice_commands:
         command_info = voice_commands[command]
         function = command_info["function"]
@@ -1014,9 +872,9 @@ async def trigger_action(command):
         # Call the function with the parameters
         try:
             if asyncio.iscoroutinefunction(function):
-                result = await function(**params)
+                result = await function(drone_connections=drone_connections, config=config, **params)
             else:
-                result = function(**params)
+                result = function(drone_connections=drone_connections, config=config, **params)
             print(f"Triggered {command} with result: {result}")
         except Exception as e:
             print(f"Error triggering {command}: {e}")
@@ -1024,10 +882,11 @@ async def trigger_action(command):
         print(f"Command '{command}' not found in command list.")
 
 @app.get("/trigger_voice_command")
-async def trigger_voice_command():
-    command = await recognize_speech()  # Ensure recognize_speech is awaited if it's async
+async def trigger_voice_command(drone_connections: Dict = Depends(get_drone_connections), config: Dict = Depends(get_config)):
+    # Implement your speech recognition here
+    command = "example_command"  # Replace this with the actual recognized command
     if command:
-        await trigger_action(command)  # Await trigger_action to properly execute the coroutine
+        await trigger_action(command, drone_connections=drone_connections, config=config)
     return {"status": "Voice command processed"}
 
 # Define a dictionary that maps text commands to functions and their parameters
@@ -1044,26 +903,9 @@ text_commands = {
 class ChatCommand(BaseModel):
     command: str
 
-async def trigger_action(command: str):
-    if command in text_commands:
-        command_info = text_commands[command]
-        function = command_info["function"]
-        params = command_info.get("params", {})
-
-        try:
-            if asyncio.iscoroutinefunction(function):
-                result = await function(**params)
-            else:
-                result = function(**params)
-            return {"status": "success", "result": result}
-        except Exception as e:
-            return {"status": "error", "message": str(e)}
-    else:
-        return {"status": "error", "message": f"Command '{command}' not found."}
-
 @app.post("/trigger_chat_command")
-async def trigger_chat_command(command: ChatCommand):
-    response = await trigger_action(command.command.lower())
+async def trigger_chat_command(command: ChatCommand, drone_connections: Dict = Depends(get_drone_connections), config: Dict = Depends(get_config)):
+    response = await trigger_action(command.command.lower(), drone_connections=drone_connections, config=config)
     return response
 
 @app.get("/chatbot", response_class=HTMLResponse)
