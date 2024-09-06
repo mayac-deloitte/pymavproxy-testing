@@ -1,22 +1,14 @@
-# # HOME WIFI
+# ZERO TIER NETWORK
 drones:
-  drone_1: "tcp:10.242.134.79:5763"
-  drone_2: "tcp:10.242.134.79:5773"
-  drone_3: "tcp:10.242.134.79:5783"
-#   drone_4: "tcp:192.168.1.57:5793"
-#   drone_5: "tcp:192.168.1.57:5803"
-
-# # HOTSPOT
-# drones:
-#   drone_1: "tcp:172.20.10.14:5763"
-#   drone_2: "tcp:172.20.10.14:5773"
-#   drone_3: "tcp:172.20.10.14:5783"
-
-# # MOBILE CELLULAR
-# drones:
-#   drone_1: "tcp:192.168.1.85:5763"
-#   drone_2: "tcp:192.168.1.85:5773"
-#   drone_3: "tcp:192.168.1.85:5783"
+  drone_1:
+    connection_string: "tcp:10.242.134.79:5763"
+    system_id: 1
+  drone_2:
+    connection_string: "tcp:10.242.134.79:5773"
+    system_id: 2
+  drone_3:
+    connection_string: "tcp:10.242.134.79:5783"
+    system_id: 3
 
 settings:
   separation_time: 5.0  # Minimum separation distance in meters
@@ -39,33 +31,97 @@ waypoints:
       longitude: 149.161575
       altitude: 50.0
       command: 16
-    # - latitude: -35.3632621  # Home location
-    #   longitude: 149.1652374
-    #   altitude: 0.0
-    #   command: 16
+    - latitude: -35.3632621  # Home location
+      longitude: 149.1652374
+      altitude: 0.0
+      command: 16
   mission_2:
-  - latitude: -35.140018
-    longitude: 150.728241
-    altitude: 100.0
-    command: 16  # MAV_CMD_NAV_WAYPOINT
-  - latitude: -35.130000
-    longitude: 150.740000
-    altitude: 100.0
-    command: 16  # Moving northeast
-  - latitude: -35.120000
-    longitude: 150.728241
-    altitude: 100.0
-    command: 16  # Moving north
-  - latitude: -35.130000
-    longitude: 150.715000
-    altitude: 100.0
-    command: 16  # Moving northwest
-  - latitude: -35.140018
-    longitude: 150.728241
-    altitude: 100.0
-    command: 16  # Returning to starting point
-
-
+    - latitude: -35.140018
+      longitude: 150.728241
+      altitude: 100.0
+      command: 16  # MAV_CMD_NAV_WAYPOINT
+    - latitude: -35.130000
+      longitude: 150.740000
+      altitude: 100.0
+      command: 16  # Moving northeast
+    - latitude: -35.120000
+      longitude: 150.728241
+      altitude: 100.0
+      command: 16  # Moving north
+    - latitude: -35.130000
+      longitude: 150.715000
+      altitude: 100.0
+      command: 16  # Moving northwest
+    - latitude: -35.140018
+      longitude: 150.728241
+      altitude: 100.0
+      command: 16  # Returning to starting point
+  mission_3:
+    - latitude: -35.150000
+      longitude: 150.728241
+      altitude: 100.0
+      command: 16  # MAV_CMD_NAV_WAYPOINT
+    - latitude: -35.140000
+      longitude: 150.740000
+      altitude: 100.0
+      command: 16  # Moving northeast
+    - latitude: -35.130000
+      longitude: 150.752000
+      altitude: 100.0
+      command: 16  # Moving east
+    - latitude: -35.120000
+      longitude: 150.740000
+      altitude: 100.0
+      command: 16  # Moving southeast
+    - latitude: -35.110000
+      longitude: 150.728241
+      altitude: 100.0
+      command: 16  # Moving south
+    - latitude: -35.120000
+      longitude: 150.715000
+      altitude: 100.0
+      command: 16  # Moving southwest
+    - latitude: -35.130000
+      longitude: 150.715000
+      altitude: 100.0
+      command: 16  # Moving west
+    - latitude: -35.150000
+      longitude: 150.728241
+      altitude: 100.0
+      command: 16  # Returning to starting point
+  mission_4:
+    - latitude: -35.140018
+      longitude: 150.728241
+      altitude: 100.0
+      command: 16  # MAV_CMD_NAV_WAYPOINT
+    - latitude: -35.145000
+      longitude: 150.740000
+      altitude: 100.0
+      command: 16  # Moving northeast
+    - latitude: -35.135000
+      longitude: 150.750000
+      altitude: 100.0
+      command: 16  # Moving east
+    - latitude: -35.125000
+      longitude: 150.740000
+      altitude: 100.0
+      command: 16  # Moving southeast
+    - latitude: -35.115000
+      longitude: 150.730000
+      altitude: 100.0
+      command: 16  # Moving south
+    - latitude: -35.125000
+      longitude: 150.715000
+      altitude: 100.0
+      command: 16  # Moving southwest
+    - latitude: -35.135000
+      longitude: 150.715000
+      altitude: 100.0
+      command: 16  # Moving west
+    - latitude: -35.140018
+      longitude: 150.728241
+      altitude: 100.0
+      command: 16  # Returning to starting point
 
 fence:
   coordinates:

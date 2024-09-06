@@ -6,7 +6,7 @@ import asyncio
 import yaml
 from typing import List, Optional, Dict
 import pymavlink.dialects.v20.all as dialect
-import speech_recognition as sr
+# import speech_recognition as sr
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 
@@ -52,15 +52,35 @@ class ConnectDroneRequest(BaseModel):
 class FenceEnableRequest(BaseModel):
     fence_enable: str
 
+def is_authorized_system_id(drone_id: str, system_id: int, config: Dict) -> bool:
+    """Check if the system ID matches the one in the config."""
+    expected_system_id = config["drones"][drone_id].get("system_id")
+    return system_id == expected_system_id
+
 def connect_drone_by_id(drone_id: str, config: Dict, drone_connections: Dict):
     """Function to connect to a drone by its ID."""
     try:
-        connection_string = config["drones"][drone_id]
+        drone_config = config["drones"].get(drone_id)
+        if drone_config is None:
+            raise HTTPException(status_code=404, detail=f"Drone ID {drone_id} not found in config")
+
+        connection_string = drone_config.get("connection_string")
+        if connection_string is None:
+            raise HTTPException(status_code=400, detail=f"Connection string for drone {drone_id} is missing")
+
         if drone_id not in drone_connections:
             master = mavutil.mavlink_connection(connection_string)
             master.wait_heartbeat()
+
+            system_id = master.target_system
+            if not is_authorized_system_id(drone_id, system_id, config):
+                raise HTTPException(status_code=403, detail="Unauthorized system ID for this drone")
+
+            # Store the connection if successful
             drone_connections[drone_id] = master
+
         return {"status": f"Drone {drone_id} connected successfully"}
+
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Drone ID {drone_id} not found in config")
     except Exception as e:
@@ -77,6 +97,7 @@ async def connect_all_drones_endpoint(config: Dict = Depends(get_config), drone_
     connected_drones = []
     failed_drones = []
 
+    # Iterate through each drone in the config
     for drone_id in config["drones"]:
         try:
             response = connect_drone_by_id(drone_id, config, drone_connections)
@@ -814,7 +835,7 @@ async def get_telemetry(master: mavutil.mavlink_connection) -> Telemetry:
                 relative_altitude=relative_altitude,
                 heading=heading,
                 battery_remaining=battery_remaining,
-                gps_fix=gps_fix
+                gps_fix = msg_gps.fix_type
             )
             return telemetry_data
 
