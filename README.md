@@ -85,7 +85,7 @@ Note. If connecting to the API non-locally, replace `localhost` with the appropr
 
 ### 3. **Control Drone Modes**
 
-   - **Change Drone Mode** (e.g., set `drone_1` to `GUIDED` mode):
+   - **Change Drone Mode (AUTO, GUIDED, LOITER etc.)** (e.g., set `drone_1` to `GUIDED` mode):
      - **Bash:**
        ```bash
        curl -X POST "http://localhost:8000/update_drone_mode/drone_1/GUIDED" -H "Content-Type: application/json"
@@ -116,6 +116,7 @@ Note. If connecting to the API non-locally, replace `localhost` with the appropr
        ```powershell
        Invoke-WebRequest -Uri "http://localhost:8000/set_mission_all_drones/mission_1" -Method Post
        ```
+   - **Note**. If you are currently running a mission and want to shift to LOITER mode, run the previous curl `update_drone_mode`. When you wish to proceed again with the mission, run the `set_mission` curl.
 
 ### 5. **Set Fences**
 
