@@ -25,6 +25,11 @@ drone_connections: Dict[str, mavutil.mavlink_connection] = {}
 def get_drone_connections():
     return drone_connections
 
+class MotherDrone:
+    def __init__(self, drone_id: str, child_drones: List[str]):
+        self.drone_id = drone_id
+        self.child_drones = child_drones
+
 class Waypoint(BaseModel):
     latitude: float
     longitude: float
@@ -58,7 +63,7 @@ def is_authorized_system_id(drone_id: str, system_id: int, config: Dict) -> bool
     return system_id == expected_system_id
 
 def connect_drone_by_id(drone_id: str, config: Dict, drone_connections: Dict):
-    """Function to connect to a drone by its ID."""
+    """Function to connect to a drone by its ID with system ID verification."""
     try:
         drone_config = config["drones"].get(drone_id)
         if drone_config is None:
@@ -73,8 +78,9 @@ def connect_drone_by_id(drone_id: str, config: Dict, drone_connections: Dict):
             master.wait_heartbeat()
 
             system_id = master.target_system
+            # Verify if the system ID matches the one in the config
             if not is_authorized_system_id(drone_id, system_id, config):
-                raise HTTPException(status_code=403, detail="Unauthorized system ID for this drone")
+                raise HTTPException(status_code=403, detail=f"Unauthorized system ID {system_id} for drone {drone_id}")
 
             # Store the connection if successful
             drone_connections[drone_id] = master
@@ -86,9 +92,37 @@ def connect_drone_by_id(drone_id: str, config: Dict, drone_connections: Dict):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+def connect_mother_drone(mother_drone_id: str, config: Dict, drone_connections: Dict):
+    """Function to connect a mother drone and all its children."""
+    try:
+        mother_drone_config = config["drones"].get(mother_drone_id)
+        if not mother_drone_config:
+            raise HTTPException(status_code=404, detail=f"Mother drone ID {mother_drone_id} not found")
+
+        # Connect the mother drone
+        response = connect_drone_by_id(mother_drone_id, config, drone_connections)
+
+        # Connect all child drones
+        child_drones = mother_drone_config.get("child_drones", [])
+        for child_id in child_drones:
+            response = connect_drone_by_id(child_id, config, drone_connections)
+            print(f"Connected child drone {child_id}")
+
+        return {"status": f"Mother drone {mother_drone_id} and its children connected successfully"}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/connect_drone")
 async def connect_drone_endpoint(request: ConnectDroneRequest, config: Dict = Depends(get_config), drone_connections: Dict = Depends(get_drone_connections)):
     """Endpoint to connect to a single drone by ID."""
+    drone_config = config["drones"].get(request.drone_id)
+    
+    # Check if the drone is a mother drone
+    if drone_config and "child_drones" in drone_config:
+        return connect_mother_drone(request.drone_id, config, drone_connections)
+
+    # Connect only a single drone
     return connect_drone_by_id(request.drone_id, config, drone_connections)
 
 @app.post("/connect_all_drones")
@@ -97,10 +131,15 @@ async def connect_all_drones_endpoint(config: Dict = Depends(get_config), drone_
     connected_drones = []
     failed_drones = []
 
-    # Iterate through each drone in the config
     for drone_id in config["drones"]:
         try:
-            response = connect_drone_by_id(drone_id, config, drone_connections)
+            drone_config = config["drones"].get(drone_id)
+            # Check if the drone is a mother drone
+            if "child_drones" in drone_config:
+                connect_mother_drone(drone_id, config, drone_connections)
+            else:
+                connect_drone_by_id(drone_id, config, drone_connections)
+            
             connected_drones.append(drone_id)
         except HTTPException as e:
             failed_drones.append({"drone_id": drone_id, "error": str(e)})
@@ -160,26 +199,62 @@ async def set_mode(master, flight_mode: str):
         print(f"Timeout while waiting for mode change to {flight_mode}")
         return "timeout"
 
-@app.post("/update_drone_mode/{drone_id}/{flight_mode}")
-async def update_drone_mode_endpoint(drone_id: str, flight_mode: str, drone_connections: Dict = Depends(get_drone_connections)):
-    master = drone_connections.get(drone_id)
-    if not master:
-        raise HTTPException(status_code=404, detail=f"Drone with ID {drone_id} not found")
-    
+async def update_mode_for_mother_and_children(mother_drone_id: str, flight_mode: str, drone_connections: Dict):
     try:
+        mother_drone_config = config["drones"].get(mother_drone_id)
+        if not mother_drone_config:
+            raise HTTPException(status_code=404, detail=f"Mother drone ID {mother_drone_id} not found")
+
+        # Change mode for the mother drone
+        master = drone_connections.get(mother_drone_id)
+        if not master:
+            raise HTTPException(status_code=404, detail=f"Drone with ID {mother_drone_id} not found")
+        
         result = await set_mode(master, flight_mode.upper())
         if result == "accepted":
-            return {
-                "status": f"Mode change to {flight_mode.upper()} successful for drone {drone_id}"
-            }
-        elif result == "timeout":
-            return {
-                "status": f"Timeout while changing mode to {flight_mode.upper()} for drone {drone_id}"
-            }
+            print(f"Mode change to {flight_mode.upper()} successful for mother drone {mother_drone_id}")
         else:
-            return {
-                "status": f"Mode change to {flight_mode.upper()} failed for drone {drone_id}"
-            }
+            raise RuntimeError(f"Mode change to {flight_mode.upper()} failed for mother drone {mother_drone_id}")
+
+        # Change mode for all child drones
+        child_drones = mother_drone_config.get("child_drones", [])
+        for child_id in child_drones:
+            master = drone_connections.get(child_id)
+            if not master:
+                raise HTTPException(status_code=404, detail=f"Drone with ID {child_id} not found")
+            
+            result = await set_mode(master, flight_mode.upper())
+            if result == "accepted":
+                print(f"Mode change to {flight_mode.upper()} successful for child drone {child_id}")
+            else:
+                raise RuntimeError(f"Mode change to {flight_mode.upper()} failed for child drone {child_id}")
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to change mode for mother and child drones: {str(e)}")
+
+@app.post("/update_drone_mode/{drone_id}/{flight_mode}")
+async def update_drone_mode_endpoint(drone_id: str, flight_mode: str, drone_connections: Dict = Depends(get_drone_connections)):
+    try:
+        drone_config = config["drones"].get(drone_id)
+        if not drone_config:
+            raise HTTPException(status_code=404, detail=f"Drone ID {drone_id} not found in config")
+
+        # Change mode for mother and child drones
+        if "child_drones" in drone_config:
+            await update_mode_for_mother_and_children(drone_id, flight_mode, drone_connections)
+        else:
+            master = drone_connections.get(drone_id)
+            if not master:
+                raise HTTPException(status_code=404, detail=f"Drone with ID {drone_id} not found")
+            
+            result = await set_mode(master, flight_mode.upper())
+            if result == "accepted":
+                return {"status": f"Mode change to {flight_mode.upper()} successful for drone {drone_id}"}
+            elif result == "timeout":
+                return {"status": f"Timeout while changing mode to {flight_mode.upper()} for drone {drone_id}"}
+            else:
+                return {"status": f"Mode change to {flight_mode.upper()} failed for drone {drone_id}"}
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -343,18 +418,40 @@ async def set_mission_and_start(master, target_locations: List[Waypoint]):
 
         await asyncio.sleep(10)  # Sleep for a while before retrying
 
+async def set_mission_for_mother_and_children(mother_drone_id: str, mission_name: str, config: Dict, drone_connections: Dict):
+    try:
+        mother_drone_config = config["drones"].get(mother_drone_id)
+        if not mother_drone_config:
+            raise HTTPException(status_code=404, detail=f"Mother drone ID {mother_drone_id} not found")
+
+        # Set the mission for the mother drone
+        await set_mission_endpoint(mother_drone_id, mission_name, config, drone_connections)
+
+        # Set the mission for all child drones
+        child_drones = mother_drone_config.get("child_drones", [])
+        for child_id in child_drones:
+            await set_mission_endpoint(child_id, mission_name, config, drone_connections)
+            print(f"Mission set for child drone {child_id}")
+
+        return {"status": f"Mission set for mother drone {mother_drone_id} and its children"}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to set mission: {str(e)}")
+
 @app.post("/set_mission/{drone_id}")
 async def set_mission_endpoint(drone_id: str, mission_name: str, config: Dict = Depends(get_config), drone_connections: Dict = Depends(get_drone_connections)):
     try:
-        if mission_name not in config["waypoints"]:
-            raise HTTPException(status_code=404, detail=f"Mission '{mission_name}' not found in config")
+        # Check if it's a mother drone
+        drone_config = config["drones"].get(drone_id)
+        if "child_drones" in drone_config:
+            return await set_mission_for_mother_and_children(drone_id, mission_name, config, drone_connections)
         
+        # Normal behavior for regular drones
         mission_waypoints = [Waypoint(**wp) for wp in config["waypoints"][mission_name]]
         master = drone_connections.get(drone_id)
         if not master:
             raise HTTPException(status_code=404, detail=f"Drone with ID {drone_id} not found")
 
-        # This is correct, assuming set_mission_and_start is async
         await set_mission_and_start(master, mission_waypoints)
 
         return {"status": f"Mission '{mission_name}' auto mode set successfully for drone '{drone_id}' and is armed"}
@@ -368,17 +465,15 @@ async def set_mission_all_drones_endpoint(mission_name: str, config: Dict = Depe
 
     for drone_id, master in drone_connections.items():
         try:
-            # Load the waypoints for the specified mission from the config
-            if mission_name not in config["waypoints"]:
-                raise HTTPException(status_code=404, detail=f"Mission '{mission_name}' not found in config")
+            drone_config = config["drones"].get(drone_id)
+            # If it's a mother drone, set mission for mother and children
+            if "child_drones" in drone_config:
+                await set_mission_for_mother_and_children(drone_id, mission_name, config, drone_connections)
+            else:
+                mission_waypoints = [Waypoint(**wp) for wp in config["waypoints"][mission_name]]
+                await set_mission_and_start(master, mission_waypoints)
             
-            mission_waypoints = [Waypoint(**wp) for wp in config["waypoints"][mission_name]]
-            
-            # Await the mission setting for each drone
-            await set_mission_and_start(master, mission_waypoints)
             successful_drones.append(drone_id)
-
-            # Add a delay between missions
             await asyncio.sleep(config["settings"]["separation_time"])
 
         except Exception as e:
@@ -516,24 +611,55 @@ async def set_fence(master, fence_coordinates: List[List[float]]):
             else:
                 print(f"Failed to set FENCE_ACTION to original value {fence_action_original}")
 
+async def set_fence_for_mother_and_children(mother_drone_id: str, config: Dict, drone_connections: Dict):
+    try:
+        mother_drone_config = config["drones"].get(mother_drone_id)
+        if not mother_drone_config:
+            raise HTTPException(status_code=404, detail=f"Mother drone ID {mother_drone_id} not found")
+
+        # Set fence for the mother drone
+        master = drone_connections.get(mother_drone_id)
+        if not master:
+            raise HTTPException(status_code=404, detail=f"Drone with ID {mother_drone_id} not found")
+        
+        fence_coordinates = config["fence"]["coordinates"]
+        await set_fence(master, fence_coordinates)
+
+        # Set fence for all child drones
+        child_drones = mother_drone_config.get("child_drones", [])
+        for child_id in child_drones:
+            master = drone_connections.get(child_id)
+            if not master:
+                raise HTTPException(status_code=404, detail=f"Drone with ID {child_id} not found")
+            
+            await set_fence(master, fence_coordinates)
+            print(f"Fence set for child drone {child_id}")
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to set fence for mother and child drones: {str(e)}")
+
 @app.post("/set_fence/{drone_id}")
 async def set_fence_endpoint(drone_id: str, config: Dict = Depends(get_config), drone_connections: Dict = Depends(get_drone_connections)):
     try:
-        # Get the drone connection from the dependency
-        master = drone_connections.get(drone_id)
-        if not master:
-            raise HTTPException(status_code=404, detail=f"Drone with ID {drone_id} not found")
-        
-        # Load the fence coordinates from the config file
-        if "fence" not in config or "coordinates" not in config["fence"]:
-            raise HTTPException(status_code=404, detail="Fence coordinates not found in config file")
-        
-        fence_coordinates = config["fence"]["coordinates"]
-        
-        # Set the fence using the loaded coordinates
-        await set_fence(master, fence_coordinates)
-        
+        # Get the drone configuration
+        drone_config = config["drones"].get(drone_id)
+        if not drone_config:
+            raise HTTPException(status_code=404, detail=f"Drone ID {drone_id} not found in config")
+
+        # Set fence for the mother drone and child drones
+        if "child_drones" in drone_config:
+            await set_fence_for_mother_and_children(drone_id, config, drone_connections)
+        else:
+            # Single drone fence setup
+            master = drone_connections.get(drone_id)
+            if not master:
+                raise HTTPException(status_code=404, detail=f"Drone with ID {drone_id} not found")
+            
+            fence_coordinates = config["fence"]["coordinates"]
+            await set_fence(master, fence_coordinates)
+
         return {"status": f"Geofence set successfully for drone '{drone_id}'"}
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to set geofence: {str(e)}")
 
@@ -744,24 +870,53 @@ async def set_rally(master, rally_coordinates: List[List[float]]):
 
     print("All the rally point items uploaded successfully")
 
+async def set_rally_for_mother_and_children(mother_drone_id: str, config: Dict, drone_connections: Dict):
+    try:
+        mother_drone_config = config["drones"].get(mother_drone_id)
+        if not mother_drone_config:
+            raise HTTPException(status_code=404, detail=f"Mother drone ID {mother_drone_id} not found")
+
+        # Set rally for the mother drone
+        master = drone_connections.get(mother_drone_id)
+        if not master:
+            raise HTTPException(status_code=404, detail=f"Drone with ID {mother_drone_id} not found")
+        
+        rally_coordinates = config["rally"]["coordinates"]
+        await set_rally(master, rally_coordinates)
+
+        # Set rally for all child drones
+        child_drones = mother_drone_config.get("child_drones", [])
+        for child_id in child_drones:
+            master = drone_connections.get(child_id)
+            if not master:
+                raise HTTPException(status_code=404, detail=f"Drone with ID {child_id} not found")
+            
+            await set_rally(master, rally_coordinates)
+            print(f"Rally set for child drone {child_id}")
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to set rally for mother and child drones: {str(e)}")
+
 @app.post("/set_rally/{drone_id}")
 async def set_rally_endpoint(drone_id: str, config: Dict = Depends(get_config), drone_connections: Dict = Depends(get_drone_connections)):
     try:
-        # Get the drone connection from the global dictionary
-        master = drone_connections.get(drone_id)
-        if not master:
-            raise HTTPException(status_code=404, detail=f"Drone with ID {drone_id} not found")
-        
-        # Load the rally coordinates from the config file
-        if "rally" not in config or "coordinates" not in config["rally"]:
-            raise HTTPException(status_code=404, detail="Rally coordinates not found in config file")
-        
-        rally_coordinates = config["rally"]["coordinates"]
-        
-        # Set the rally points using the loaded coordinates
-        await set_rally(master, rally_coordinates)
-        
+        drone_config = config["drones"].get(drone_id)
+        if not drone_config:
+            raise HTTPException(status_code=404, detail=f"Drone ID {drone_id} not found in config")
+
+        # Set rally for mother and child drones
+        if "child_drones" in drone_config:
+            await set_rally_for_mother_and_children(drone_id, config, drone_connections)
+        else:
+            master = drone_connections.get(drone_id)
+            if not master:
+                raise HTTPException(status_code=404, detail=f"Drone with ID {drone_id} not found")
+            
+            rally_coordinates = config["rally"]["coordinates"]
+            await set_rally(master, rally_coordinates)
+
         return {"status": f"Rally points set successfully for drone '{drone_id}'"}
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to set rally points: {str(e)}")
 
@@ -842,6 +997,56 @@ async def get_telemetry(master: mavutil.mavlink_connection) -> Telemetry:
     except Exception as e:
         print(f"Error retrieving telemetry data: {e}")
         raise
+
+@app.get("/get_telemetry_mother_and_children/{mother_drone_id}", response_model=List[DroneTelemetryResponse])
+async def get_telemetry_mother_and_children(mother_drone_id: str, config: Dict = Depends(get_config), drone_connections: Dict = Depends(get_drone_connections)):
+    """
+    Retrieves telemetry data for a mother drone and its child drones.
+    """
+    all_telemetry = []
+
+    # Fetch the mother drone's configuration
+    mother_drone_config = config["drones"].get(mother_drone_id)
+    if not mother_drone_config:
+        raise HTTPException(status_code=404, detail=f"Mother drone ID {mother_drone_id} not found")
+
+    # Get telemetry for the mother drone
+    try:
+        master = drone_connections.get(mother_drone_id)
+        if not master:
+            raise HTTPException(status_code=404, detail=f"Drone with ID {mother_drone_id} not found in connections")
+        
+        telemetry = await get_telemetry(master)
+        all_telemetry.append({
+            "drone_id": mother_drone_id,
+            "telemetry": telemetry
+        })
+    except Exception as e:
+        all_telemetry.append({
+            "drone_id": mother_drone_id,
+            "error": str(e)
+        })
+
+    # Get telemetry for all child drones
+    child_drones = mother_drone_config.get("child_drones", [])
+    for child_id in child_drones:
+        try:
+            master = drone_connections.get(child_id)
+            if not master:
+                raise HTTPException(status_code=404, detail=f"Drone with ID {child_id} not found in connections")
+            
+            telemetry = await get_telemetry(master)
+            all_telemetry.append({
+                "drone_id": child_id,
+                "telemetry": telemetry
+            })
+        except Exception as e:
+            all_telemetry.append({
+                "drone_id": child_id,
+                "error": str(e)
+            })
+
+    return all_telemetry
 
 @app.get("/get_telemetry/{drone_id}", response_model=Telemetry)
 async def get_telemetry_endpoint(drone_id: str, drone_connections: Dict = Depends(get_drone_connections)):

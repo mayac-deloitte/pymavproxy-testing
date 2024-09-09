@@ -1,8 +1,11 @@
 # ZERO TIER NETWORK
 drones:
-  drone_1:
+  mother_drone_1:
     connection_string: "tcp:10.242.134.79:5763"
     system_id: 1
+    child_drones:
+      - drone_2
+      - drone_3
   drone_2:
     connection_string: "tcp:10.242.134.79:5773"
     system_id: 2
