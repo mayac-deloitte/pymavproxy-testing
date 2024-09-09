@@ -43,8 +43,8 @@ drones:
     connection_string: "tcp:10.242.134.79:5853"
     system_id: 10
     child_drones:
-      - drone_11
-      - drone_12
+      - drone_8
+      - drone_9
   drone_8:
     connection_string: "tcp:10.242.134.79:5863"
     system_id: 11
