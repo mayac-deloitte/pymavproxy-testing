@@ -13,6 +13,45 @@ drones:
     connection_string: "tcp:10.242.134.79:5783"
     system_id: 3
 
+  mother_drone_2:
+    connection_string: "tcp:10.242.134.79:5793"
+    system_id: 4
+    child_drones:
+      - drone_4
+      - drone_5
+  drone_4:
+    connection_string: "tcp:10.242.134.79:5803"
+    system_id: 5
+  drone_5:
+    connection_string: "tcp:10.242.134.79:5813"
+    system_id: 6
+
+  mother_drone_3:
+    connection_string: "tcp:10.242.134.79:5823"
+    system_id: 7
+    child_drones:
+      - drone_6
+      - drone_7
+  drone_6:
+    connection_string: "tcp:10.242.134.79:5833"
+    system_id: 8
+  drone_7:
+    connection_string: "tcp:10.242.134.79:5843"
+    system_id: 9
+  
+  mother_drone_4:
+    connection_string: "tcp:10.242.134.79:5853"
+    system_id: 10
+    child_drones:
+      - drone_11
+      - drone_12
+  drone_8:
+    connection_string: "tcp:10.242.134.79:5863"
+    system_id: 11
+  drone_9:
+    connection_string: "tcp:10.242.134.79:5873"
+    system_id: 12
+
 settings:
   separation_time: 5.0  # Minimum separation distance in meters
 
