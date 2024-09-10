@@ -9,6 +9,8 @@ import pymavlink.dialects.v20.all as dialect
 # import speech_recognition as sr
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
+import csv
+from datetime import datetime
 
 app = FastAPI()
 
@@ -981,6 +983,15 @@ async def get_telemetry(master: mavutil.mavlink_connection) -> Telemetry:
             battery_remaining = msg_sys_status.battery_remaining
             gps_fix = msg_gps.fix_type
             
+            # Log telemetry data to CSV
+            with open('drone_telemetry_log.csv', mode='a') as file:
+                writer = csv.writer(file)
+                timestamp = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+                writer.writerow([
+                    timestamp, drone_id, latitude, longitude, altitude, velocity, 
+                    relative_altitude, heading, battery_remaining, gps_fix
+                ])
+
             # Return telemetry data
             telemetry_data = Telemetry(
                 latitude=latitude if latitude is not None else 0.0,
