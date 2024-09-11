@@ -199,6 +199,72 @@ Note. If connecting to the API non-locally, replace `localhost` with the appropr
        ```
 ---
 
+## Chatbot/Voicebot Integration
+
+The FastAPI drone control system also supports interaction through a chatbot or voicebot interface. This allows users to issue commands either by typing them in a chat interface or by speaking them into a voice recognition system. 
+
+### How to Use the Chatbot/Voicebot
+To get the chatbot running, you need to serve the HTML file for the chatbot interface and ensure your FastAPI application is running. Here’s what you need to do:
+
+1. **Start the FastAPI Server**:
+   - Use the following command to run your FastAPI server:
+     ```bash
+     python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+     ```
+   - This command starts the server on port `8000` and will serve the chatbot HTML from the `/static/chatbot.html` file.
+
+2. **Access the Chatbot**:
+   - Once the server is running, open your browser and go to:
+     ```
+     http://localhost:8000/chatbot
+     ```
+   - This will open the chatbot interface in your browser where you can enter commands (e.g., `connect drone drone_1` or `start mission mission_1 for drone_1`).
+   
+3. **Voicebot Interaction**
+   - The voice recognition system will transcribe spoken commands and send them as a text string to the API. The FastAPI app is capable of handling common voice recognition quirks (e.g., converting `"drone underscore one"` to `"drone_1"`).
+   - Voice commands should follow the same structure as the API commands, for example:
+     - **Voice Input:** `"start mission mission underscore one for drone underscore one"`
+     - **Transcription:** The voice system should convert the command to `"start mission mission_1 for drone_1"`.
+   - The voicebot sends this transcribed command to the `/trigger_command` endpoint, which will process it and trigger the appropriate action.
+
+4. **Chatbot Interaction**
+   - The chatbot accepts direct text input from users, which can be commands to control the drone swarm.
+   - Commands can be typed in the same format as the API commands, such as:
+     - **Chat Input:** `"start mission mission_1 for drone_1"`
+   - The chatbot sends these commands to the same `/trigger_command` endpoint.
+
+3. **Send Commands**:
+   - Once commands are visible in the input field in the chatbot interface and click the **Send** button. The chatbot will send the command to the FastAPI backend, which processes it and returns the response.
+
+### Example Chatbot/Voicebot Commands
+
+Here are some example commands you can use with both the chatbot and voicebot systems:
+
+- **Connect to a Specific Drone:**
+  - Voice/Chat Command: `"connect drone drone_1"`
+  - Action: Connects to `drone_1`.
+
+- **Start a Mission for a Specific Drone:**
+  - Voice/Chat Command: `"start mission mission_1 for drone_1"`
+  - Action: Starts `mission_1` for `drone_1`.
+
+- **Enable Fence for a Specific Drone:**
+  - Voice/Chat Command: `"enable fence for drone drone_1"`
+  - Action: Enables the fence for `drone_1`.
+
+- **Get Telemetry for All Drones:**
+  - Voice/Chat Command: `"get telemetry for all drones"`
+  - Action: Retrieves telemetry data for all connected drones.
+
+### Handling Voice Recognition Quirks
+
+The system includes a preprocessing step to handle common quirks in voice recognition, such as:
+
+- Converting `"underscore"` to `"_"` (e.g., `"drone underscore one"` becomes `"drone_1"`).
+- Translating number words (e.g., `"one"`, `"two"`) into digits (e.g., `"drone one"` becomes `"drone_1"`).
+
+---
+
 ## Expected Outputs
 
 Here’s what you can expect as output from each of the `curl` commands listed in the API Endpoints section above:
