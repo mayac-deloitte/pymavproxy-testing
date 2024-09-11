@@ -944,7 +944,7 @@ def preprocess_command(command: str) -> str:
     # Replace common voice recognition errors
     command = command.lower()
     command = command.replace("underscore", "_")  # Convert 'underscore' to '_'
-    
+
     # Handle numbers in words
     number_words = {
         "one": "1",
@@ -973,7 +973,7 @@ async def trigger_action(command: str, drone_connections: Dict = Depends(get_dro
         if match:
             params = command_info.get("params", {}).copy()
             groups = match.groups()
-            
+
             # Dynamically set drone_id and mission_name based on the matched groups
             if "drone_id" in params:
                 params["drone_id"] = groups[-1]  # The last group is the drone name
@@ -999,8 +999,8 @@ async def trigger_action(command: str, drone_connections: Dict = Depends(get_dro
 @app.post("/trigger_command")
 async def trigger_command(command: ChatCommand, drone_connections: Dict = Depends(get_drone_connections), config: Dict = Depends(get_config)):
     # Preprocess and trigger the action
-    response = await trigger_action(command.command.lower(), drone_connections=drone_connections, config=config)
-    # response = await trigger_action_llm(command.command.lower(), drone_connections=drone_connections, config=config)
+    # response = await trigger_action(command.command.lower(), drone_connections=drone_connections, config=config)
+    response = await trigger_action_llm(command.command.lower(), drone_connections=drone_connections, config=config)
     return response
 
 @app.get("/chatbot", response_class=HTMLResponse)
@@ -1009,20 +1009,18 @@ async def get_chatbot():
         return f.read()
 
 import openai
-openai.api_key = 'YOUR_OPENAI_API_KEY'
+openai.api_key = 'sk-7iOqePJICDnDjXWZ2MJzvpSvHh-4yz_8HoBZTyV0JrT3BlbkFJ7WpZIhMCni4kB32x9Yt06-gYx2Pn5HtZTnhj3aCYkA'
 
 async def format_with_llm(prompt):
     try:
-        # Send the prompt to the OpenAI API
-        response = openai.Completion.create(
-            model="gpt-3.5-turbo",  # Use a suitable model
-            prompt=prompt,
-            max_tokens=200,  # Adjust max_tokens based on how much output you want
-            n=1,  # Return only one completion
-            stop=None,  # No specific stopping point
-            temperature=0.7  # Adjust creativity level
+        # Send the prompt to the OpenAI API using the latest method
+        response = openai.chat.completions.create(model="gpt-3.5-turbo",  # Ensure the correct model is used
+        messages=[{"role": "user", "content": prompt}],  # Use chat format
+        max_tokens=200,  # Adjust max_tokens based on how much output you want
+        n=1,  # Return only one completion
+        temperature=0.7  # Adjust creativity level
         )
-        return response.choices[0].text.strip()  # Extract the response text
+        return response.choices[0].message.content.strip()  # Extract the response text
     except Exception as e:
         # In case of an error, return the error message
         return f"Error formatting output: {str(e)}"
@@ -1051,7 +1049,7 @@ async def trigger_action_llm(command: str, drone_connections: Dict = Depends(get
                     result = await function(drone_connections=drone_connections, config=config, **params)
                 else:
                     result = function(drone_connections=drone_connections, config=config, **params)
-                
+
                 # Use LLM to format the result
                 prompt = f"Please format this response in a more user-friendly way: {result}"
                 formatted_result = await format_with_llm(prompt)
@@ -1064,6 +1062,15 @@ async def trigger_action_llm(command: str, drone_connections: Dict = Depends(get
 
     print(f"Command '{command}' not found in command list.")
     return {"status": "error", "message": "Command not found"}
+
+@app.get("/test_openai")
+async def test_openai():
+    try:
+        prompt = "Test if OpenAI is working."
+        response = await format_with_llm(prompt)
+        return {"status": "success", "response": response}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 if __name__ == "__main__":
     import uvicorn
