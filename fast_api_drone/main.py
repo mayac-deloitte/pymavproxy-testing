@@ -910,33 +910,52 @@ async def get_all_telemetry(response: Response, drone_connections: Dict = Depend
     
     return all_telemetry
 
-# Scalable command dictionary with placeholders for drone_id and other parameters
+# Scalable command dictionary with exact drone names and mission names like mission_1, mission_2
 commands = {
-    r"connect drone (\d+)": {"function": connect_drone_by_id, "params": {"drone_id": None}},
+    # Connection commands
+    r"connect drone (drone_\w+)": {"function": connect_drone_by_id, "params": {"drone_id": None}},
     r"connect all drones": {"function": connect_all_drones_endpoint, "params": {}},
-    r"start mission for drone (\d+)": {"function": set_mission_endpoint, "params": {"drone_id": None, "mission_name": "mission_1"}},
-    r"enable fence for drone (\d+)": {"function": enable_fence_endpoint, "params": {"drone_id": None, "request": FenceEnableRequest(fence_enable="ENABLE")}},
-    r"set rally for drone (\d+)": {"function": set_rally_endpoint, "params": {"drone_id": None}},
-    r"get telemetry for drone (\d+)": {"function": get_telemetry_endpoint, "params": {"drone_id": None}},
-    # Add more scalable command mappings as needed
+
+    # Mission commands with specific mission name format (e.g., mission_1, mission_2)
+    r"start mission (mission_\d+) for drone (drone_\w+)": {"function": set_mission_endpoint, "params": {"drone_id": None, "mission_name": None}},
+    r"start mission (mission_\d+) for all drones": {"function": set_mission_all_drones_endpoint, "params": {"mission_name": None}},
+
+    # Fence commands
+    r"enable fence for drone (drone_\w+)": {"function": enable_fence_endpoint, "params": {"drone_id": None, "request": FenceEnableRequest(fence_enable="ENABLE")}},
+    r"enable fence (\w+) for all drones": {"function": enable_fence_all_drones_endpoint, "params": {"request": FenceEnableRequest(fence_enable="ENABLE")}},
+    r"set fence for drone (drone_\w+)": {"function": set_fence_endpoint, "params": {"drone_id": None}},
+    r"set fence for all drones": {"function": set_fence_all_drones_endpoint, "params": {}},
+
+    # Rally commands
+    r"set rally for drone (drone_\w+)": {"function": set_rally_endpoint, "params": {"drone_id": None}},
+    r"set rally for all drones": {"function": set_rally_all_drones, "params": {}},
+
+    # Mode change commands
+    r"set mode (\w+) for drone (drone_\w+)": {"function": set_mode_endpoint, "params": {"drone_id": None, "flight_mode": None}},
+    r"set mode (\w+) for all drones": {"function": set_mode_all_drones, "params": {"flight_mode": None}},
+
+    # Telemetry commands
+    r"get telemetry for drone (drone_\w+)": {"function": get_telemetry_endpoint, "params": {"drone_id": None}},
+    r"get telemetry for all drones": {"function": get_all_telemetry, "params": {}}
 }
 
 async def trigger_action(command: str, drone_connections: Dict = Depends(get_drone_connections), config: Dict = Depends(get_config)):
     for pattern, command_info in commands.items():
         match = re.match(pattern, command)
         if match:
-            # Extract the drone_id from the matched command (if applicable)
-            drone_id = f"drone_{match.group(1)}" if match.groups() else None
-            params = command_info.get("params", {}).copy()  # Copy to avoid modifying the original dictionary
-
-            if drone_id:
-                # Update params with the dynamic drone_id
-                params["drone_id"] = drone_id
+            params = command_info.get("params", {}).copy()
+            groups = match.groups()
+            
+            # Dynamically set drone_id and mission_name based on the matched groups
+            if "drone_id" in params:
+                params["drone_id"] = groups[-1]  # The last group is the drone name
+            if "mission_name" in params:
+                params["mission_name"] = groups[0]  # The first group is the mission name
 
             function = command_info["function"]
 
-            # Call the function with the parameters
             try:
+                # Handle async functions
                 if asyncio.iscoroutinefunction(function):
                     result = await function(drone_connections=drone_connections, config=config, **params)
                 else:
