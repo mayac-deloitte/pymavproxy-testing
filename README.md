@@ -351,7 +351,7 @@ Here’s what you can expect as output from each of the `curl` commands listed i
 
 5. **Change Drone Mode**
    ```bash
-   curl -X POST "http://localhost:8000/update_drone_mode/drone_1/GUIDED" -H "Content-Type: application/json"
+   curl -X POST "http://localhost:8000/set_mode/drone_1/GUIDED" -H "Content-Type: application/json"
    ```
    **Output:**
    ```json
