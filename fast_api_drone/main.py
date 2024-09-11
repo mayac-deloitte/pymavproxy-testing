@@ -939,7 +939,35 @@ commands = {
     r"get telemetry for all drones": {"function": get_all_telemetry, "params": {}}
 }
 
+# Preprocessing function to handle voice recognition quirks
+def preprocess_command(command: str) -> str:
+    # Replace common voice recognition errors
+    command = command.lower()
+    command = command.replace("underscore", "_")  # Convert 'underscore' to '_'
+    
+    # Handle numbers in words
+    number_words = {
+        "one": "1",
+        "two": "2",
+        "three": "3",
+        "four": "4",
+        "five": "5",
+        "six": "6",
+        "seven": "7",
+        "eight": "8",
+        "nine": "9",
+        "zero": "0"
+    }
+    
+    for word, num in number_words.items():
+        command = command.replace(word, num)  # Convert number words to digits
+
+    return command
+
 async def trigger_action(command: str, drone_connections: Dict = Depends(get_drone_connections), config: Dict = Depends(get_config)):
+    # Preprocess the command to handle voice quirks
+    command = preprocess_command(command)
+
     for pattern, command_info in commands.items():
         match = re.match(pattern, command)
         if match:
