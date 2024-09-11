@@ -204,7 +204,6 @@ Note. If connecting to the API non-locally, replace `localhost` with the appropr
 The FastAPI drone control system also supports interaction through a chatbot or voicebot interface. This allows users to issue commands either by typing them in a chat interface or by speaking them into a voice recognition system. 
 
 ### How to Use the Chatbot/Voicebot
-To get the chatbot running, you need to serve the HTML file for the chatbot interface and ensure your FastAPI application is running. Here’s what you need to do:
 
 1. **Start the FastAPI Server**:
    - Use the following command to run your FastAPI server:
@@ -218,7 +217,7 @@ To get the chatbot running, you need to serve the HTML file for the chatbot inte
      ```
      http://localhost:8000/chatbot
      ```
-   - This will open the chatbot interface in your browser where you can enter commands (e.g., `connect drone drone_1` or `start mission mission_1 for drone_1`).
+   - This will open the chatbot interface in your browser where you can enter commands.
    
 3. **Voicebot Interaction**
    - The voice recognition system will transcribe spoken commands and send them as a text string to the API. The FastAPI app is capable of handling common voice recognition quirks (e.g., converting `"drone underscore one"` to `"drone_1"`).
@@ -233,8 +232,8 @@ To get the chatbot running, you need to serve the HTML file for the chatbot inte
      - **Chat Input:** `"start mission mission_1 for drone_1"`
    - The chatbot sends these commands to the same `/trigger_command` endpoint.
 
-3. **Send Commands**:
-   - Once commands are visible in the input field in the chatbot interface and click the **Send** button. The chatbot will send the command to the FastAPI backend, which processes it and returns the response.
+5. **Send Commands**:
+   - Once you've typed your command into the input field in the chatbot interface, you can either click the **Send** button or press **Enter** on your keyboard. The chatbot will send the command to the FastAPI backend, which processes it and returns the response.
 
 ### Example Chatbot/Voicebot Commands
 
