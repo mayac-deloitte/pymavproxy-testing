@@ -1009,7 +1009,7 @@ async def get_chatbot():
         return f.read()
 
 import openai
-openai.api_key = 'sk-7iOqePJICDnDjXWZ2MJzvpSvHh-4yz_8HoBZTyV0JrT3BlbkFJ7WpZIhMCni4kB32x9Yt06-gYx2Pn5HtZTnhj3aCYkA'
+# openai.api_key = 'sk-7iOqePJICDnDjXWZ2MJzvpSvHh-4yz_8HoBZTyV0JrT3BlbkFJ7WpZIhMCni4kB32x9Yt06-gYx2Pn5HtZTnhj3aCYkA'
 
 async def format_with_llm(prompt):
     try:
