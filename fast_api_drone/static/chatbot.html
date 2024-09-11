@@ -99,11 +99,27 @@
 <script>
     let recognition;
     let isListening = false;
+    let commandHistory = [];
+    let historyIndex = -1;
 
-    // Add event listener to detect Enter key press
+    // Add event listener to detect Enter key press and up/down arrow for history
     document.getElementById('chat-input').addEventListener('keydown', function(event) {
         if (event.key === 'Enter') {
             sendMessage(); // Trigger sendMessage when Enter is pressed
+        } else if (event.key === 'ArrowUp') {
+            // Show the previous command
+            if (historyIndex > 0) {
+                historyIndex--;
+                document.getElementById('chat-input').value = commandHistory[historyIndex];
+            }
+        } else if (event.key === 'ArrowDown') {
+            // Show the next command
+            if (historyIndex < commandHistory.length - 1) {
+                historyIndex++;
+                document.getElementById('chat-input').value = commandHistory[historyIndex];
+            } else {
+                document.getElementById('chat-input').value = ''; // Clear if at the end of history
+            }
         }
     });
 
@@ -112,6 +128,12 @@
         const chatMessages = document.getElementById('chat-messages');
         const userMessage = inputElement.value;
         inputElement.value = ''; // Clear the input
+
+        // Store the command in history
+        if (userMessage) {
+            commandHistory.push(userMessage);
+            historyIndex = commandHistory.length; // Reset the history index to the end
+        }
 
         // Display the message in the chat window
         if (userMessage) {
