@@ -235,6 +235,11 @@ The FastAPI drone control system also supports interaction through a chatbot or 
 5. **Send Commands**:
    - Once you've typed your command into the input field in the chatbot interface, you can either click the **Send** button or press **Enter** on your keyboard. The chatbot will send the command to the FastAPI backend, which processes it and returns the response.
 
+6. **Use Command History**:
+   - The chatbot interface now supports command history. You can use the Up Arrow and Down Arrow keys to navigate through previously entered commands:
+     - Up Arrow: Retrieves the previous command you entered.
+     - Down Arrow: Moves forward to the next command or clears the input if you’ve reached the end of the command history.
+
 ### Example Chatbot/Voicebot Commands
 
 Here are some example commands you can use with both the chatbot and voicebot systems:
