@@ -9,6 +9,7 @@ import pymavlink.dialects.v20.all as dialect
 # import speech_recognition as sr
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
+import re
 
 app = FastAPI()
 
@@ -51,6 +52,9 @@ class ConnectDroneRequest(BaseModel):
 
 class FenceEnableRequest(BaseModel):
     fence_enable: str
+
+class ChatCommand(BaseModel):
+    command: str
 
 def is_authorized_system_id(drone_id: str, system_id: int, config: Dict) -> bool:
     """Check if the system ID matches the one in the config."""
@@ -160,8 +164,8 @@ async def set_mode(master, flight_mode: str):
         print(f"Timeout while waiting for mode change to {flight_mode}")
         return "timeout"
 
-@app.post("/update_drone_mode/{drone_id}/{flight_mode}")
-async def update_drone_mode_endpoint(drone_id: str, flight_mode: str, drone_connections: Dict = Depends(get_drone_connections)):
+@app.post("/set_mode/{drone_id}/{flight_mode}")
+async def set_mode_endpoint(drone_id: str, flight_mode: str, drone_connections: Dict = Depends(get_drone_connections)):
     master = drone_connections.get(drone_id)
     if not master:
         raise HTTPException(status_code=404, detail=f"Drone with ID {drone_id} not found")
@@ -182,6 +186,29 @@ async def update_drone_mode_endpoint(drone_id: str, flight_mode: str, drone_conn
             }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/set_mode_all_drones/{flight_mode}")
+async def set_mode_all_drones(flight_mode: str, drone_connections: Dict = Depends(get_drone_connections)):
+    results = {}
+    
+    for drone_id, master in drone_connections.items():
+        try:
+            # Call the set_mode function for each drone
+            result = await set_mode(master, flight_mode.upper())
+            if result == "accepted":
+                results[drone_id] = f"Mode change to {flight_mode.upper()} successful"
+            elif result == "timeout":
+                results[drone_id] = f"Timeout while changing mode to {flight_mode.upper()}"
+            else:
+                results[drone_id] = f"Mode change to {flight_mode.upper()} failed"
+        except Exception as e:
+            # If any exception occurs, log the error for that specific drone
+            results[drone_id] = f"Error: {str(e)}"
+
+    # Return a dictionary with the results for each drone
+    return {
+        "status": results
+    }
 
 async def set_mission_and_start(master, target_locations: List[Waypoint]):
     # Send the mission count message asynchronously
@@ -538,7 +565,7 @@ async def set_fence_endpoint(drone_id: str, config: Dict = Depends(get_config), 
         raise HTTPException(status_code=500, detail=f"Failed to set geofence: {str(e)}")
 
 @app.post("/set_fence_all_drones")
-async def set_fence_all_drones(config: Dict = Depends(get_config), drone_connections: Dict = Depends(get_drone_connections)):
+async def set_fence_all_drones_endpoint(config: Dict = Depends(get_config), drone_connections: Dict = Depends(get_drone_connections)):
     successful_drones = []
     failed_drones = []
 
@@ -601,7 +628,7 @@ async def enable_fence_endpoint(drone_id: str, request: FenceEnableRequest, dron
         raise HTTPException(status_code=500, detail=f"Failed to send fence command: {str(e)}")
 
 @app.post("/enable_fence_all_drones")
-async def enable_fence_all_drones(request: FenceEnableRequest, drone_connections: Dict = Depends(get_drone_connections)):
+async def enable_fence_all_drones_endpoint(request: FenceEnableRequest, drone_connections: Dict = Depends(get_drone_connections)):
     """
     Enable the fence for all drones with the specified mode (ENABLE, DISABLE, DISABLE_FLOOR_ONLY).
     """
@@ -883,52 +910,52 @@ async def get_all_telemetry(response: Response, drone_connections: Dict = Depend
     
     return all_telemetry
 
-# Define a dictionary that maps voice commands to functions and their parameters
-voice_commands = {
-    "connect drone": {"function": connect_drone_by_id, "params": {"drone_id": "drone_1"}},
-    "connect all drones": {"function": connect_all_drones_endpoint, "params": {}},
-    "start mission for drone number one": {"function": set_mission_endpoint, "params": {"drone_id": "drone_1", "mission_name": "mission_1"}},
-    "enable fence": {"function": enable_fence_endpoint, "params": {"drone_id": "drone_1", "request": FenceEnableRequest(fence_enable="ENABLE")}},
-    "set rally": {"function": set_rally_endpoint, "params": {"drone_id": "drone_1"}},
-    "get telemetry": {"function": get_telemetry_endpoint, "params": {"drone_id": "drone_1"}},
+# Scalable command dictionary with placeholders for drone_id and other parameters
+commands = {
+    r"connect drone (\d+)": {"function": connect_drone_by_id, "params": {"drone_id": None}},
+    r"connect all drones": {"function": connect_all_drones_endpoint, "params": {}},
+    r"start mission for drone (\d+)": {"function": set_mission_endpoint, "params": {"drone_id": None, "mission_name": "mission_1"}},
+    r"enable fence for drone (\d+)": {"function": enable_fence_endpoint, "params": {"drone_id": None, "request": FenceEnableRequest(fence_enable="ENABLE")}},
+    r"set rally for drone (\d+)": {"function": set_rally_endpoint, "params": {"drone_id": None}},
+    r"get telemetry for drone (\d+)": {"function": get_telemetry_endpoint, "params": {"drone_id": None}},
+    # Add more scalable command mappings as needed
 }
 
 async def trigger_action(command: str, drone_connections: Dict = Depends(get_drone_connections), config: Dict = Depends(get_config)):
-    if command in voice_commands:
-        command_info = voice_commands[command]
-        function = command_info["function"]
-        params = command_info.get("params", {})
+    for pattern, command_info in commands.items():
+        match = re.match(pattern, command)
+        if match:
+            # Extract the drone_id from the matched command (if applicable)
+            drone_id = f"drone_{match.group(1)}" if match.groups() else None
+            params = command_info.get("params", {}).copy()  # Copy to avoid modifying the original dictionary
 
-        # Call the function with the parameters
-        try:
-            if asyncio.iscoroutinefunction(function):
-                result = await function(drone_connections=drone_connections, config=config, **params)
-            else:
-                result = function(drone_connections=drone_connections, config=config, **params)
-            print(f"Triggered {command} with result: {result}")
-        except Exception as e:
-            print(f"Error triggering {command}: {e}")
-    else:
-        print(f"Command '{command}' not found in command list.")
+            if drone_id:
+                # Update params with the dynamic drone_id
+                params["drone_id"] = drone_id
+
+            function = command_info["function"]
+
+            # Call the function with the parameters
+            try:
+                if asyncio.iscoroutinefunction(function):
+                    result = await function(drone_connections=drone_connections, config=config, **params)
+                else:
+                    result = function(drone_connections=drone_connections, config=config, **params)
+                print(f"Triggered {command} with result: {result}")
+                return {"status": "success", "result": result}
+            except Exception as e:
+                print(f"Error triggering {command}: {e}")
+                return {"status": "error", "message": str(e)}
+    print(f"Command '{command}' not found in command list.")
+    return {"status": "error", "message": "Command not found"}
 
 @app.get("/trigger_voice_command")
 async def trigger_voice_command(drone_connections: Dict = Depends(get_drone_connections), config: Dict = Depends(get_config)):
     # Implement your speech recognition here
     command = "example_command"  # Replace this with the actual recognized command
     if command:
-        await trigger_action(command, drone_connections=drone_connections, config=config)
-    return {"status": "Voice command processed"}
-
-# Define a dictionary that maps text commands to functions and their parameters
-text_commands = {
-    "connect drone 1": {"function": connect_drone_by_id, "params": {"drone_id": "drone_1"}},
-    "connect all drones": {"function": connect_all_drones_endpoint, "params": {}},
-    "start mission for drone 1": {"function": set_mission_endpoint, "params": {"drone_id": "drone_1", "mission_name": "mission_1"}},
-    "enable fence for drone 1": {"function": enable_fence_endpoint, "params": {"drone_id": "drone_1", "request": FenceEnableRequest(fence_enable="ENABLE")}},
-    "set rally for drone 1": {"function": set_rally_endpoint, "params": {"drone_id": "drone_1"}},
-    "get telemetry for drone 1": {"function": get_telemetry_endpoint, "params": {"drone_id": "drone_1"}},
-    # Add more command mappings as needed
-}
+        return await trigger_action(command.lower(), drone_connections=drone_connections, config=config)
+    return {"status": "No command recognized"}
 
 class ChatCommand(BaseModel):
     command: str
