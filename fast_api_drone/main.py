@@ -996,19 +996,9 @@ async def trigger_action(command: str, drone_connections: Dict = Depends(get_dro
     print(f"Command '{command}' not found in command list.")
     return {"status": "error", "message": "Command not found"}
 
-@app.get("/trigger_voice_command")
-async def trigger_voice_command(drone_connections: Dict = Depends(get_drone_connections), config: Dict = Depends(get_config)):
-    # Implement your speech recognition here
-    command = "example_command"  # Replace this with the actual recognized command
-    if command:
-        return await trigger_action(command.lower(), drone_connections=drone_connections, config=config)
-    return {"status": "No command recognized"}
-
-class ChatCommand(BaseModel):
-    command: str
-
-@app.post("/trigger_chat_command")
-async def trigger_chat_command(command: ChatCommand, drone_connections: Dict = Depends(get_drone_connections), config: Dict = Depends(get_config)):
+@app.post("/trigger_command")
+async def trigger_command(command: ChatCommand, drone_connections: Dict = Depends(get_drone_connections), config: Dict = Depends(get_config)):
+    # Preprocess and trigger the action
     response = await trigger_action(command.command.lower(), drone_connections=drone_connections, config=config)
     return response
 
