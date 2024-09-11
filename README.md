@@ -210,7 +210,6 @@ The FastAPI drone control system also supports interaction through a chatbot or 
      ```bash
      python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
      ```
-   - This command starts the server on port `8000` and will serve the chatbot HTML from the `/static/chatbot.html` file.
 
 2. **Access the Chatbot**:
    - Once the server is running, open your browser and go to:
@@ -224,21 +223,19 @@ The FastAPI drone control system also supports interaction through a chatbot or 
    - Voice commands should follow the same structure as the API commands, for example:
      - **Voice Input:** `"start mission mission underscore one for drone underscore one"`
      - **Transcription:** The voice system should convert the command to `"start mission mission_1 for drone_1"`.
-   - The voicebot sends this transcribed command to the `/trigger_command` endpoint, which will process it and trigger the appropriate action.
 
 4. **Chatbot Interaction**
    - The chatbot accepts direct text input from users, which can be commands to control the drone swarm.
    - Commands can be typed in the same format as the API commands, such as:
      - **Chat Input:** `"start mission mission_1 for drone_1"`
-   - The chatbot sends these commands to the same `/trigger_command` endpoint.
 
 5. **Send Commands**:
    - Once you've typed your command into the input field in the chatbot interface, you can either click the **Send** button or press **Enter** on your keyboard. The chatbot will send the command to the FastAPI backend, which processes it and returns the response.
 
 6. **Use Command History**:
    - The chatbot interface now supports command history. You can use the Up Arrow and Down Arrow keys to navigate through previously entered commands:
-     - Up Arrow: Retrieves the previous command you entered.
-     - Down Arrow: Moves forward to the next command or clears the input if you’ve reached the end of the command history.
+     - **Up Arrow**: Retrieves the previous command you entered.
+     - **Down Arrow**: Moves forward to the next command or clears the input if you’ve reached the end of the command history.
 
 ### Example Chatbot/Voicebot Commands
 
