@@ -33,6 +33,11 @@ This project provides a FastAPI interface to control a drone swarm using non-loc
        ```bash
        python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
        ```
+   - Run the following command if you want to use the generated SSL certificate and key to start the app:
+     - **Bash/PowerShell:**
+       ```bash
+       python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload --ssl-keyfile=privkey.pem --ssl-certfile=fullchain.pem
+       ```
 
 ## API Endpoints
 
