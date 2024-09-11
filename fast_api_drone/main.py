@@ -835,7 +835,7 @@ async def get_telemetry(master: mavutil.mavlink_connection) -> Telemetry:
                 relative_altitude=relative_altitude,
                 heading=heading,
                 battery_remaining=battery_remaining,
-                gps_fix = msg_gps.fix_type
+                gps_fix = gps_fix
             )
             return telemetry_data
 
