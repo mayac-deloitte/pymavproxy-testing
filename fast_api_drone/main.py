@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Response
 from pydantic import BaseModel
 from pymavlink import mavutil
 import time
@@ -844,10 +844,15 @@ async def get_telemetry(master: mavutil.mavlink_connection) -> Telemetry:
         raise
 
 @app.get("/get_telemetry/{drone_id}", response_model=Telemetry)
-async def get_telemetry_endpoint(drone_id: str, drone_connections: Dict = Depends(get_drone_connections)):
+async def get_telemetry_endpoint(response: Response, drone_id: str, drone_connections: Dict = Depends(get_drone_connections)):
     master = drone_connections.get(drone_id)
     if not master:
         raise HTTPException(status_code=404, detail=f"Drone with ID {drone_id} not found")
+    
+    # Add cache-control headers to prevent caching
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
     
     try:
         telemetry = await get_telemetry(master)
@@ -856,9 +861,13 @@ async def get_telemetry_endpoint(drone_id: str, drone_connections: Dict = Depend
         raise HTTPException(status_code=500, detail=str(e))
     
 @app.get("/get_all_telemetry", response_model=List[DroneTelemetryResponse])
-async def get_all_telemetry(drone_connections: Dict = Depends(get_drone_connections)):
-    all_telemetry = []
+async def get_all_telemetry(response: Response, drone_connections: Dict = Depends(get_drone_connections)):
+    # Add cache-control headers to prevent caching
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
     
+    all_telemetry = []
     for drone_id, master in drone_connections.items():
         try:
             telemetry = await get_telemetry(master)
