@@ -1000,6 +1000,7 @@ async def trigger_action(command: str, drone_connections: Dict = Depends(get_dro
 async def trigger_command(command: ChatCommand, drone_connections: Dict = Depends(get_drone_connections), config: Dict = Depends(get_config)):
     # Preprocess and trigger the action
     response = await trigger_action(command.command.lower(), drone_connections=drone_connections, config=config)
+    # response = await trigger_action_llm(command.command.lower(), drone_connections=drone_connections, config=config)
     return response
 
 @app.get("/chatbot", response_class=HTMLResponse)
@@ -1008,8 +1009,6 @@ async def get_chatbot():
         return f.read()
 
 import openai
-
-# Set your OpenAI API key
 openai.api_key = 'YOUR_OPENAI_API_KEY'
 
 async def format_with_llm(prompt):
