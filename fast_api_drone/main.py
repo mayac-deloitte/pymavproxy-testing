@@ -1007,6 +1007,65 @@ async def get_chatbot():
     with open("static/chatbot.html") as f:
         return f.read()
 
+import openai
+
+# Set your OpenAI API key
+openai.api_key = 'YOUR_OPENAI_API_KEY'
+
+async def format_with_llm(prompt):
+    try:
+        # Send the prompt to the OpenAI API
+        response = openai.Completion.create(
+            model="gpt-3.5-turbo",  # Use a suitable model
+            prompt=prompt,
+            max_tokens=200,  # Adjust max_tokens based on how much output you want
+            n=1,  # Return only one completion
+            stop=None,  # No specific stopping point
+            temperature=0.7  # Adjust creativity level
+        )
+        return response.choices[0].text.strip()  # Extract the response text
+    except Exception as e:
+        # In case of an error, return the error message
+        return f"Error formatting output: {str(e)}"
+
+async def trigger_action_llm(command: str, drone_connections: Dict = Depends(get_drone_connections), config: Dict = Depends(get_config)):
+    # Preprocess the command to handle voice quirks
+    command = preprocess_command(command)
+
+    for pattern, command_info in commands.items():
+        match = re.match(pattern, command)
+        if match:
+            params = command_info.get("params", {}).copy()
+            groups = match.groups()
+            
+            # Dynamically set drone_id and mission_name based on the matched groups
+            if "drone_id" in params:
+                params["drone_id"] = groups[-1]  # The last group is the drone name
+            if "mission_name" in params:
+                params["mission_name"] = groups[0]  # The first group is the mission name
+
+            function = command_info["function"]
+
+            try:
+                # Handle async functions
+                if asyncio.iscoroutinefunction(function):
+                    result = await function(drone_connections=drone_connections, config=config, **params)
+                else:
+                    result = function(drone_connections=drone_connections, config=config, **params)
+                
+                # Use LLM to format the result
+                prompt = f"Please format this response in a more user-friendly way: {result}"
+                formatted_result = await format_with_llm(prompt)
+
+                return {"status": "success", "result": formatted_result}
+
+            except Exception as e:
+                print(f"Error triggering {command}: {e}")
+                return {"status": "error", "message": str(e)}
+
+    print(f"Command '{command}' not found in command list.")
+    return {"status": "error", "message": "Command not found"}
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
