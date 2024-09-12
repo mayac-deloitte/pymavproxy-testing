@@ -1008,17 +1008,23 @@ async def get_chatbot():
     with open("static/chatbot.html") as f:
         return f.read()
 
-import openai
-# openai.api_key = 'sk-7iOqePJICDnDjXWZ2MJzvpSvHh-4yz_8HoBZTyV0JrT3BlbkFJ7WpZIhMCni4kB32x9Yt06-gYx2Pn5HtZTnhj3aCYkA'
+import os
+from openai import OpenAI
+client = OpenAI()
+api_key = os.environ.get("OPENAI_API_KEY")
+if not api_key:
+    raise ValueError("OPENAI_API_KEY not found in environment variables")
+client = OpenAI()
 
 async def format_with_llm(prompt):
     try:
         # Send the prompt to the OpenAI API using the latest method
-        response = openai.chat.completions.create(model="gpt-3.5-turbo",  # Ensure the correct model is used
-        messages=[{"role": "user", "content": prompt}],  # Use chat format
-        max_tokens=200,  # Adjust max_tokens based on how much output you want
-        n=1,  # Return only one completion
-        temperature=0.7  # Adjust creativity level
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",  # Ensure the correct model is used
+            messages=[{"role": "user", "content": prompt}],  # Use chat format
+            max_tokens=200,  # Adjust max_tokens based on how much output you want
+            n=1,  # Return only one completion
+            temperature=0.7  # Adjust creativity level
         )
         return response.choices[0].message.content.strip()  # Extract the response text
     except Exception as e:
