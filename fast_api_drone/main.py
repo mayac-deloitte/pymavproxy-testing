@@ -910,6 +910,8 @@ async def get_all_telemetry(response: Response, drone_connections: Dict = Depend
     
     return all_telemetry
 
+## VOICE/CHATBOT
+
 # Scalable command dictionary with exact drone names and mission names like mission_1, mission_2
 commands = {
     # Connection commands
@@ -1030,6 +1032,7 @@ async def format_with_llm(prompt):
         # In case of an error, return the error message
         return f"Error formatting output: {str(e)}"
 
+# Function to handle drone and mission commands with OpenAI fallback for unrecognized commands
 async def trigger_action_llm(command: str, drone_connections: Dict = Depends(get_drone_connections), config: Dict = Depends(get_config)):
     # Preprocess the command to handle voice quirks
     command = preprocess_command(command)
@@ -1065,8 +1068,12 @@ async def trigger_action_llm(command: str, drone_connections: Dict = Depends(get
                 print(f"Error triggering {command}: {e}")
                 return {"status": "error", "message": str(e)}
 
+    # If no matching command, generate a user-friendly response with OpenAI
+    fallback_prompt = f"The command '{command}' was not found. Can you suggest a more user-friendly explanation or alternative?"
+    fallback_response = await format_with_llm(fallback_prompt)
+
     print(f"Command '{command}' not found in command list.")
-    return {"status": "error", "message": "Command not found"}
+    return {"status": "error", "message": fallback_response}
 
 @app.get("/test_openai")
 async def test_openai():
