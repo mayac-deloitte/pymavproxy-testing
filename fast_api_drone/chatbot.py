@@ -1,8 +1,6 @@
 import openai
 import json
 
-  
-
 # Predefined API command templates (curl commands)
 api_commands = {
     "connect_all_drones": "curl -X POST 'http://localhost:8000/connect_all_drones'",
