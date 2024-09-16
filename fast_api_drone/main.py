@@ -1075,7 +1075,7 @@ async def get_all_telemetry(response: Response, drone_connections: Dict = Depend
 # # METHOD 2: 
 
 # OpenAI API Key
-openai.api_key = "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"
+openai.api_key = ""
 
 # Predefined API command templates (curl commands)
 api_commands = {
