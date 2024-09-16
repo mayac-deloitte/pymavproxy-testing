@@ -217,7 +217,7 @@
             chatMessages.appendChild(userMessageElement);
         }
 
-        const response = await fetch('http://localhost:8000/trigger_chat_command', {
+        const response = await fetch('http://localhost:8000/trigger_command', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'

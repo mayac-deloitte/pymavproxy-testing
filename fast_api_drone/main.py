@@ -10,6 +10,8 @@ import pymavlink.dialects.v20.all as dialect
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 import re
+import openai
+import json
 
 app = FastAPI()
 
@@ -910,172 +912,223 @@ async def get_all_telemetry(response: Response, drone_connections: Dict = Depend
     
     return all_telemetry
 
-# Scalable command dictionary with exact drone names and mission names like mission_1, mission_2
-commands = {
-    # Connection commands
-    r"connect drone (drone_\w+)": {"function": connect_drone_by_id, "params": {"drone_id": None}},
-    r"connect all drones": {"function": connect_all_drones_endpoint, "params": {}},
+# # METHOD 1: 
 
-    # Mission commands with specific mission name format (e.g., mission_1, mission_2)
-    r"start mission (mission_\d+) for drone (drone_\w+)": {"function": set_mission_endpoint, "params": {"drone_id": None, "mission_name": None}},
-    r"start mission (mission_\d+) for all drones": {"function": set_mission_all_drones_endpoint, "params": {"mission_name": None}},
+# # Scalable command dictionary with exact drone names and mission names like mission_1, mission_2
+# commands = {
+#     # Connection commands
+#     r"connect drone (drone_\w+)": {"function": connect_drone_by_id, "params": {"drone_id": None}},
+#     r"connect all drones": {"function": connect_all_drones_endpoint, "params": {}},
 
-    # Fence commands
-    r"enable fence for drone (drone_\w+)": {"function": enable_fence_endpoint, "params": {"drone_id": None, "request": FenceEnableRequest(fence_enable="ENABLE")}},
-    r"enable fence (\w+) for all drones": {"function": enable_fence_all_drones_endpoint, "params": {"request": FenceEnableRequest(fence_enable="ENABLE")}},
-    r"set fence for drone (drone_\w+)": {"function": set_fence_endpoint, "params": {"drone_id": None}},
-    r"set fence for all drones": {"function": set_fence_all_drones_endpoint, "params": {}},
+#     # Mission commands with specific mission name format (e.g., mission_1, mission_2)
+#     r"start mission (mission_\d+) for drone (drone_\w+)": {"function": set_mission_endpoint, "params": {"drone_id": None, "mission_name": None}},
+#     r"start mission (mission_\d+) for all drones": {"function": set_mission_all_drones_endpoint, "params": {"mission_name": None}},
 
-    # Rally commands
-    r"set rally for drone (drone_\w+)": {"function": set_rally_endpoint, "params": {"drone_id": None}},
-    r"set rally for all drones": {"function": set_rally_all_drones, "params": {}},
+#     # Fence commands
+#     r"enable fence for drone (drone_\w+)": {"function": enable_fence_endpoint, "params": {"drone_id": None, "request": FenceEnableRequest(fence_enable="ENABLE")}},
+#     r"enable fence (\w+) for all drones": {"function": enable_fence_all_drones_endpoint, "params": {"request": FenceEnableRequest(fence_enable="ENABLE")}},
+#     r"set fence for drone (drone_\w+)": {"function": set_fence_endpoint, "params": {"drone_id": None}},
+#     r"set fence for all drones": {"function": set_fence_all_drones_endpoint, "params": {}},
 
-    # Mode change commands
-    r"set mode (\w+) for drone (drone_\w+)": {"function": set_mode_endpoint, "params": {"drone_id": None, "flight_mode": None}},
-    r"set mode (\w+) for all drones": {"function": set_mode_all_drones, "params": {"flight_mode": None}},
+#     # Rally commands
+#     r"set rally for drone (drone_\w+)": {"function": set_rally_endpoint, "params": {"drone_id": None}},
+#     r"set rally for all drones": {"function": set_rally_all_drones, "params": {}},
 
-    # Telemetry commands
-    r"get telemetry for drone (drone_\w+)": {"function": get_telemetry_endpoint, "params": {"drone_id": None}},
-    r"get telemetry for all drones": {"function": get_all_telemetry, "params": {}}
+#     # Mode change commands
+#     r"set mode (\w+) for drone (drone_\w+)": {"function": set_mode_endpoint, "params": {"drone_id": None, "flight_mode": None}},
+#     r"set mode (\w+) for all drones": {"function": set_mode_all_drones, "params": {"flight_mode": None}},
+
+#     # Telemetry commands
+#     r"get telemetry for drone (drone_\w+)": {"function": get_telemetry_endpoint, "params": {"drone_id": None}},
+#     r"get telemetry for all drones": {"function": get_all_telemetry, "params": {}}
+# }
+
+# # Preprocessing function to handle voice recognition quirks
+# def preprocess_command(command: str) -> str:
+#     # Replace common voice recognition errors
+#     command = command.lower()
+#     command = command.replace("underscore", "_")  # Convert 'underscore' to '_'
+
+#     # Handle numbers in words
+#     number_words = {
+#         "one": "1",
+#         "two": "2",
+#         "three": "3",
+#         "four": "4",
+#         "five": "5",
+#         "six": "6",
+#         "seven": "7",
+#         "eight": "8",
+#         "nine": "9",
+#         "zero": "0"
+#     }
+    
+#     for word, num in number_words.items():
+#         command = command.replace(word, num)  # Convert number words to digits
+
+#     return command
+
+# async def trigger_action(command: str, drone_connections: Dict = Depends(get_drone_connections), config: Dict = Depends(get_config)):
+#     # Preprocess the command to handle voice quirks
+#     command = preprocess_command(command)
+
+#     for pattern, command_info in commands.items():
+#         match = re.match(pattern, command)
+#         if match:
+#             params = command_info.get("params", {}).copy()
+#             groups = match.groups()
+
+#             # Dynamically set drone_id and mission_name based on the matched groups
+#             if "drone_id" in params:
+#                 params["drone_id"] = groups[-1]  # The last group is the drone name
+#             if "mission_name" in params:
+#                 params["mission_name"] = groups[0]  # The first group is the mission name
+
+#             function = command_info["function"]
+
+#             try:
+#                 # Handle async functions
+#                 if asyncio.iscoroutinefunction(function):
+#                     result = await function(drone_connections=drone_connections, config=config, **params)
+#                 else:
+#                     result = function(drone_connections=drone_connections, config=config, **params)
+#                 print(f"Triggered {command} with result: {result}")
+#                 return {"status": "success", "result": result}
+#             except Exception as e:
+#                 print(f"Error triggering {command}: {e}")
+#                 return {"status": "error", "message": str(e)}
+#     print(f"Command '{command}' not found in command list.")
+#     return {"status": "error", "message": "Command not found"}
+
+# @app.post("/trigger_command")
+# async def trigger_command(command: ChatCommand, drone_connections: Dict = Depends(get_drone_connections), config: Dict = Depends(get_config)):
+#     # Preprocess and trigger the action
+#     # response = await trigger_action(command.command.lower(), drone_connections=drone_connections, config=config)
+#     response = await trigger_action_llm(command.command.lower(), drone_connections=drone_connections, config=config)
+#     return response
+
+# @app.get("/chatbot", response_class=HTMLResponse)
+# async def get_chatbot():
+#     with open("static/chatbot.html") as f:
+#         return f.read()
+
+# import os
+# from openai import OpenAI
+# api_key = os.environ.get("OPENAI_API_KEY")
+# if not api_key:
+#     raise ValueError("OPENAI_API_KEY not found in environment variables")
+# client = OpenAI()
+
+# async def format_with_llm(prompt):
+#     try:
+#         # Send the prompt to the OpenAI API using the latest method
+#         response = client.chat.completions.create(
+#             model="gpt-3.5-turbo",  # Ensure the correct model is used
+#             messages=[{"role": "user", "content": prompt}],  # Use chat format
+#             max_tokens=200,  # Adjust max_tokens based on how much output you want
+#             n=1,  # Return only one completion
+#             temperature=0.7  # Adjust creativity level
+#         )
+#         return response.choices[0].message.content.strip()  # Extract the response text
+#     except Exception as e:
+#         # In case of an error, return the error message
+#         return f"Error formatting output: {str(e)}"
+
+# async def trigger_action_llm(command: str, drone_connections: Dict = Depends(get_drone_connections), config: Dict = Depends(get_config)):
+#     # Preprocess the command to handle voice quirks
+#     command = preprocess_command(command)
+
+#     for pattern, command_info in commands.items():
+#         match = re.match(pattern, command)
+#         if match:
+#             params = command_info.get("params", {}).copy()
+#             groups = match.groups()
+            
+#             # Dynamically set drone_id and mission_name based on the matched groups
+#             if "drone_id" in params:
+#                 params["drone_id"] = groups[-1]  # The last group is the drone name
+#             if "mission_name" in params:
+#                 params["mission_name"] = groups[0]  # The first group is the mission name
+
+#             function = command_info["function"]
+
+#             try:
+#                 # Handle async functions
+#                 if asyncio.iscoroutinefunction(function):
+#                     result = await function(drone_connections=drone_connections, config=config, **params)
+#                 else:
+#                     result = function(drone_connections=drone_connections, config=config, **params)
+
+#                 # Use LLM to format the result
+#                 prompt = f"Please format this response in a more user-friendly way: {result}"
+#                 formatted_result = await format_with_llm(prompt)
+
+#                 return {"status": "success", "result": formatted_result}
+
+#             except Exception as e:
+#                 print(f"Error triggering {command}: {e}")
+#                 return {"status": "error", "message": str(e)}
+
+#     print(f"Command '{command}' not found in command list.")
+#     return {"status": "error", "message": "Command not found"}
+
+# # METHOD 2: 
+
+# OpenAI API Key
+openai.api_key = "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"
+
+# Predefined API command templates (curl commands)
+api_commands = {
+    "connect_all_drones": "curl -X POST 'http://localhost:8000/connect_all_drones'",
+    "connect_drone": "curl -X POST 'http://localhost:8000/connect_drone' -H 'Content-Type: application/json' -d '{{\"drone_id\": \"{drone_id}\"}}'",
+    "get_all_telemetry": "curl -X GET 'http://localhost:8000/get_all_telemetry'",
+    "get_telemetry": "curl -X GET 'http://localhost:8000/get_telemetry/{drone_id}'",
+    "update_drone_mode": "curl -X POST 'http://localhost:8000/update_drone_mode/{drone_id}/{mode}' -H 'Content-Type: application/json'",
 }
 
-# Preprocessing function to handle voice recognition quirks
-def preprocess_command(command: str) -> str:
-    # Replace common voice recognition errors
-    command = command.lower()
-    command = command.replace("underscore", "_")  # Convert 'underscore' to '_'
+class ChatCommand(BaseModel):
+    command: str
 
-    # Handle numbers in words
-    number_words = {
-        "one": "1",
-        "two": "2",
-        "three": "3",
-        "four": "4",
-        "five": "5",
-        "six": "6",
-        "seven": "7",
-        "eight": "8",
-        "nine": "9",
-        "zero": "0"
-    }
+def get_gpt4_response(user_command: str):
+    """Use GPT-4 to process the user command and return an appropriate API command."""
     
-    for word, num in number_words.items():
-        command = command.replace(word, num)  # Convert number words to digits
-
-    return command
-
-async def trigger_action(command: str, drone_connections: Dict = Depends(get_drone_connections), config: Dict = Depends(get_config)):
-    # Preprocess the command to handle voice quirks
-    command = preprocess_command(command)
-
-    for pattern, command_info in commands.items():
-        match = re.match(pattern, command)
-        if match:
-            params = command_info.get("params", {}).copy()
-            groups = match.groups()
-
-            # Dynamically set drone_id and mission_name based on the matched groups
-            if "drone_id" in params:
-                params["drone_id"] = groups[-1]  # The last group is the drone name
-            if "mission_name" in params:
-                params["mission_name"] = groups[0]  # The first group is the mission name
-
-            function = command_info["function"]
-
-            try:
-                # Handle async functions
-                if asyncio.iscoroutinefunction(function):
-                    result = await function(drone_connections=drone_connections, config=config, **params)
-                else:
-                    result = function(drone_connections=drone_connections, config=config, **params)
-                print(f"Triggered {command} with result: {result}")
-                return {"status": "success", "result": result}
-            except Exception as e:
-                print(f"Error triggering {command}: {e}")
-                return {"status": "error", "message": str(e)}
-    print(f"Command '{command}' not found in command list.")
-    return {"status": "error", "message": "Command not found"}
+    prompt = f"""
+    You are a drone assistant. Based on the user command, output the appropriate API command.
+    
+    Command: {user_command}
+    
+    API Commands: {json.dumps(api_commands, indent=2)}
+    
+    Your task is to determine which API command is the closest match and fill in any necessary parameters such as drone_id or mode.
+    
+    Respond with the exact curl command or an error message if you can't interpret the command.
+    """
+    
+    # Call GPT-4 with the user command using OpenAI ChatCompletion endpoint
+    response = openai.ChatCompletion.create(
+        model="gpt-4",
+        messages=[
+            {"role": "system", "content": "You are a drone assistant."},
+            {"role": "user", "content": prompt}
+        ],
+        max_tokens=100,
+        temperature=0.2,
+    )
+    
+    # Extract the response text
+    gpt_output = response['choices'][0]['message']['content'].strip()
+    
+    return gpt_output
 
 @app.post("/trigger_command")
-async def trigger_command(command: ChatCommand, drone_connections: Dict = Depends(get_drone_connections), config: Dict = Depends(get_config)):
-    # Preprocess and trigger the action
-    # response = await trigger_action(command.command.lower(), drone_connections=drone_connections, config=config)
-    response = await trigger_action_llm(command.command.lower(), drone_connections=drone_connections, config=config)
-    return response
-
-@app.get("/chatbot", response_class=HTMLResponse)
-async def get_chatbot():
-    with open("static/chatbot.html") as f:
-        return f.read()
-
-import os
-from openai import OpenAI
-api_key = os.environ.get("OPENAI_API_KEY")
-if not api_key:
-    raise ValueError("OPENAI_API_KEY not found in environment variables")
-client = OpenAI()
-
-async def format_with_llm(prompt):
-    try:
-        # Send the prompt to the OpenAI API using the latest method
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",  # Ensure the correct model is used
-            messages=[{"role": "user", "content": prompt}],  # Use chat format
-            max_tokens=200,  # Adjust max_tokens based on how much output you want
-            n=1,  # Return only one completion
-            temperature=0.7  # Adjust creativity level
-        )
-        return response.choices[0].message.content.strip()  # Extract the response text
-    except Exception as e:
-        # In case of an error, return the error message
-        return f"Error formatting output: {str(e)}"
-
-async def trigger_action_llm(command: str, drone_connections: Dict = Depends(get_drone_connections), config: Dict = Depends(get_config)):
-    # Preprocess the command to handle voice quirks
-    command = preprocess_command(command)
-
-    for pattern, command_info in commands.items():
-        match = re.match(pattern, command)
-        if match:
-            params = command_info.get("params", {}).copy()
-            groups = match.groups()
-            
-            # Dynamically set drone_id and mission_name based on the matched groups
-            if "drone_id" in params:
-                params["drone_id"] = groups[-1]  # The last group is the drone name
-            if "mission_name" in params:
-                params["mission_name"] = groups[0]  # The first group is the mission name
-
-            function = command_info["function"]
-
-            try:
-                # Handle async functions
-                if asyncio.iscoroutinefunction(function):
-                    result = await function(drone_connections=drone_connections, config=config, **params)
-                else:
-                    result = function(drone_connections=drone_connections, config=config, **params)
-
-                # Use LLM to format the result
-                prompt = f"Please format this response in a more user-friendly way: {result}"
-                formatted_result = await format_with_llm(prompt)
-
-                return {"status": "success", "result": formatted_result}
-
-            except Exception as e:
-                print(f"Error triggering {command}: {e}")
-                return {"status": "error", "message": str(e)}
-
-    print(f"Command '{command}' not found in command list.")
-    return {"status": "error", "message": "Command not found"}
-
-@app.get("/test_openai")
-async def test_openai():
-    try:
-        prompt = "Test if OpenAI is working."
-        response = await format_with_llm(prompt)
-        return {"status": "success", "response": response}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+async def trigger_command(command: ChatCommand):
+    """API endpoint to trigger a drone command via GPT-4."""
+    user_command = command.command.lower()
+    
+    # Get the response from GPT-4
+    gpt4_response = get_gpt4_response(user_command)
+    
+    return {"gpt4_response": gpt4_response}
 
 if __name__ == "__main__":
     import uvicorn
