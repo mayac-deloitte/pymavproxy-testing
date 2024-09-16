@@ -10,6 +10,9 @@ import pymavlink.dialects.v20.all as dialect
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 import re
+import openai
+import json
+import requests
 
 app = FastAPI()
 
@@ -910,7 +913,8 @@ async def get_all_telemetry(response: Response, drone_connections: Dict = Depend
     
     return all_telemetry
 
-## VOICE/CHATBOT
+
+# METHOD 1: 
 
 # Scalable command dictionary with exact drone names and mission names like mission_1, mission_2
 commands = {
@@ -1001,8 +1005,7 @@ async def trigger_action(command: str, drone_connections: Dict = Depends(get_dro
 @app.post("/trigger_command")
 async def trigger_command(command: ChatCommand, drone_connections: Dict = Depends(get_drone_connections), config: Dict = Depends(get_config)):
     # Preprocess and trigger the action
-    # response = await trigger_action(command.command.lower(), drone_connections=drone_connections, config=config)
-    response = await trigger_action_llm(command.command.lower(), drone_connections=drone_connections, config=config)
+    response = await trigger_action(command.command.lower(), drone_connections=drone_connections, config=config)
     return response
 
 @app.get("/chatbot", response_class=HTMLResponse)
@@ -1010,79 +1013,120 @@ async def get_chatbot():
     with open("static/chatbot.html") as f:
         return f.read()
 
-# import os
-# from openai import OpenAI
-# api_key = os.environ.get("OPENAI_API_KEY")
-# if not api_key:
-#     raise ValueError("OPENAI_API_KEY not found in environment variables")
-# client = OpenAI()
 
-async def format_with_llm(prompt):
+# METHOD 2: 
+
+# OpenAI API Key
+openai.api_key = ""
+
+# Predefined API command templates (curl commands)
+api_commands = {
+    "connect_all_drones": "curl -X POST 'http://localhost:8000/connect_all_drones'",
+    "connect_drone": "curl -X POST 'http://localhost:8000/connect_drone' -H 'Content-Type: application/json' -d '{{\"drone_id\": \"{drone_id}\"}}'",
+    "get_all_telemetry": "curl -X GET 'http://localhost:8000/get_all_telemetry'",
+    "get_telemetry": "curl -X GET 'http://localhost:8000/get_telemetry/{drone_id}'",
+    "update_drone_mode": "curl -X POST 'http://localhost:8000/update_drone_mode/{drone_id}/{mode}' -H 'Content-Type: application/json'",
+    "set_mission": "curl -X POST 'http://localhost:8000/set_mission/{drone_id}?mission_name={mission_id}'"
+}
+class ChatCommand(BaseModel):
+    command: str
+
+def get_gpt4_response(user_command: str):
+    """Use GPT-4 to process the user command and return an appropriate API command."""
+    
+    prompt = f"""
+    You are a drone assistant. Based on the user command, output the appropriate API command.
+    
+    Command: {user_command}
+    
+    API Commands: {json.dumps(api_commands, indent=2)}
+    
+    Your task is to determine which API command is the closest match and fill in any necessary parameters such as drone_id or mode.
+    
+    Respond with the exact curl command or an error message if you can't interpret the command.
+    """
+    
+    # Call GPT-4 with the user command using OpenAI ChatCompletion endpoint
+    response = openai.ChatCompletion.create(
+        model="gpt-4",
+        messages=[
+            {"role": "system", "content": "You are a drone assistant."},
+            {"role": "user", "content": prompt}
+        ],
+        max_tokens=100,
+        temperature=0.2,
+    )
+    
+    # Extract the response text
+    gpt_output = response['choices'][0]['message']['content'].strip()
+    
+    return gpt_output
+
+def execute_curl_command(curl_command: str):
+    """Parse and execute the curl command using the requests library and return a user-friendly response."""
+    
+    # Match HTTP method
+    method_match = re.search(r"curl -X (\w+)", curl_command)
+    if not method_match:
+        return {"error": "Invalid curl command: unable to detect HTTP method"}
+    method = method_match.group(1)
+    
+    # Match URL
+    url_match = re.search(r"'(http[^\']*)'", curl_command)
+    if not url_match:
+        return {"error": "Invalid curl command: unable to detect URL"}
+    url = url_match.group(1)
+    
+    # Match headers if present
+    headers = {}
+    headers_match = re.findall(r"-H '([^']*)'", curl_command)
+    for header in headers_match:
+        key, value = header.split(": ")
+        headers[key] = value
+    
+    # Match data if present
+    data_match = re.search(r"-d '([^']*)'", curl_command)
+    data = data_match.group(1) if data_match else None
+    
+    # Execute the request using requests library
     try:
-        # Send the prompt to the OpenAI API using the latest method
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",  # Ensure the correct model is used
-            messages=[{"role": "user", "content": prompt}],  # Use chat format
-            max_tokens=200,  # Adjust max_tokens based on how much output you want
-            n=1,  # Return only one completion
-            temperature=0.7  # Adjust creativity level
-        )
-        return response.choices[0].message.content.strip()  # Extract the response text
-    except Exception as e:
-        # In case of an error, return the error message
-        return f"Error formatting output: {str(e)}"
-
-# Function to handle drone and mission commands with OpenAI fallback for unrecognized commands
-async def trigger_action_llm(command: str, drone_connections: Dict = Depends(get_drone_connections), config: Dict = Depends(get_config)):
-    # Preprocess the command to handle voice quirks
-    command = preprocess_command(command)
-
-    for pattern, command_info in commands.items():
-        match = re.match(pattern, command)
-        if match:
-            params = command_info.get("params", {}).copy()
-            groups = match.groups()
-            
-            # Dynamically set drone_id and mission_name based on the matched groups
-            if "drone_id" in params:
-                params["drone_id"] = groups[-1]  # The last group is the drone name
-            if "mission_name" in params:
-                params["mission_name"] = groups[0]  # The first group is the mission name
-
-            function = command_info["function"]
-
-            try:
-                # Handle async functions
-                if asyncio.iscoroutinefunction(function):
-                    result = await function(drone_connections=drone_connections, config=config, **params)
-                else:
-                    result = function(drone_connections=drone_connections, config=config, **params)
-
-                # Use LLM to format the result
-                prompt = f"Please format this response in a more user-friendly way: {result}"
-                formatted_result = await format_with_llm(prompt)
-
-                return {"status": "success", "result": formatted_result}
-
-            except Exception as e:
-                print(f"Error triggering {command}: {e}")
-                return {"status": "error", "message": str(e)}
-
-    # If no matching command, generate a user-friendly response with OpenAI
-    fallback_prompt = f"The command '{command}' was not found. Can you suggest a more user-friendly explanation or alternative?"
-    fallback_response = await format_with_llm(fallback_prompt)
-
-    print(f"Command '{command}' not found in command list.")
-    return {"status": "error", "message": fallback_response}
-
-@app.get("/test_openai")
-async def test_openai():
-    try:
-        prompt = "Test if OpenAI is working."
-        response = await format_with_llm(prompt)
-        return {"status": "success", "response": response}
+        if method == "POST":
+            response = requests.post(url, headers=headers, data=data)
+        elif method == "GET":
+            response = requests.get(url, headers=headers)
+        else:
+            return {"error": f"HTTP method {method} not supported"}
+        
+        # Format the response in a user-friendly way
+        if response.status_code == 200:
+            return {"status": "success", "message": "Command executed successfully!", "details": response.text}
+        else:
+            return {"status": "error", "message": f"Command failed with status code {response.status_code}", "details": response.text}
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
+@app.post("/trigger_command")
+async def trigger_command(command: ChatCommand):
+    """API endpoint to trigger a drone command via GPT-4."""
+    user_command = command.command.lower()
+    
+    # Get the response from GPT-4
+    gpt4_response = get_gpt4_response(user_command)
+    
+    # Execute the curl command returned by GPT-4
+    execution_result = execute_curl_command(gpt4_response)
+    
+    # Create a user-friendly response
+    if execution_result.get("status") == "success":
+        return {
+            "message": execution_result.get("message"),
+            "details": f"Drone API response: {execution_result.get('details')}"
+        }
+    else:
+        return {
+            "message": execution_result.get("message"),
+            "details": f"Error Details: {execution_result.get('details')}"
+        }
 
 if __name__ == "__main__":
     import uvicorn
