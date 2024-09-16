@@ -1015,7 +1015,7 @@ async def get_chatbot():
 # METHOD 2: 
 
 # OpenAI API Key
-openai.api_key = "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"
+openai.api_key = ""
 
 # Predefined API command templates (curl commands)
 api_commands = {
