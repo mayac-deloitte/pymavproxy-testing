@@ -1,3 +1,4 @@
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -227,11 +228,11 @@
 
         const result = await response.json();
 
-        // Extract user-friendly response fields
-        const botMessageContent = result.message + '\n' + result.details;
+        // Extract the relevant part of the response (e.g., gpt4_response)
+        const botResponse = result.gpt4_response;  // Adjust this key according to the backend response structure
 
         const botMessage = document.createElement('div');
-        botMessage.textContent = botMessageContent;  // Display the user-friendly message and details
+        botMessage.textContent = botResponse;  // Only display the relevant message
         botMessage.classList.add('message', 'bot');
         chatMessages.appendChild(botMessage);
 
