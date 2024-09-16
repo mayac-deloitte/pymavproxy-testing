@@ -1,6 +1,7 @@
 import openai
 import json
 
+openai.api_key = ""
 
 # Predefined API command templates (curl commands)
 api_commands = {
