@@ -1,4 +1,3 @@
-<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -217,6 +216,7 @@
             chatMessages.appendChild(userMessageElement);
         }
 
+        // Sending the command to the backend
         const response = await fetch('http://localhost:8000/trigger_command', {
             method: 'POST',
             headers: {
@@ -227,14 +227,18 @@
 
         const result = await response.json();
 
+        // Extract user-friendly response fields
+        const botMessageContent = result.message + '\n' + result.details;
+
         const botMessage = document.createElement('div');
-        botMessage.textContent = JSON.stringify(result);
+        botMessage.textContent = botMessageContent;  // Display the user-friendly message and details
         botMessage.classList.add('message', 'bot');
         chatMessages.appendChild(botMessage);
 
+        // Scroll to the latest message
         chatMessages.scrollTop = chatMessages.scrollHeight;
     }
-
+    
     function toggleVoiceRecognition() {
         if (isListening) {
             stopVoiceRecognition();
