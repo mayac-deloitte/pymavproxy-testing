@@ -825,7 +825,7 @@ async def get_telemetry(master: mavutil.mavlink_connection) -> Telemetry:
         request = dialect.MAVLink_request_data_stream_message(target_system=master.target_system,
                                                                 target_component=master.target_component,
                                                                 req_stream_id=0,
-                                                                req_message_rate=10,
+                                                                req_message_rate=1,
                                                                 start_stop=1)
 
         # send request data stream message to the vehicle
@@ -1010,12 +1010,12 @@ async def get_chatbot():
     with open("static/chatbot.html") as f:
         return f.read()
 
-import os
-from openai import OpenAI
-api_key = os.environ.get("OPENAI_API_KEY")
-if not api_key:
-    raise ValueError("OPENAI_API_KEY not found in environment variables")
-client = OpenAI()
+# import os
+# from openai import OpenAI
+# api_key = os.environ.get("OPENAI_API_KEY")
+# if not api_key:
+#     raise ValueError("OPENAI_API_KEY not found in environment variables")
+# client = OpenAI()
 
 async def format_with_llm(prompt):
     try:
