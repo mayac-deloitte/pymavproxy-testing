@@ -828,7 +828,7 @@ async def get_telemetry(master: mavutil.mavlink_connection) -> Telemetry:
         request = dialect.MAVLink_request_data_stream_message(target_system=master.target_system,
                                                                 target_component=master.target_component,
                                                                 req_stream_id=0,
-                                                                req_message_rate=10,
+                                                                req_message_rate=1,
                                                                 start_stop=1)
 
         # send request data stream message to the vehicle
@@ -912,6 +912,7 @@ async def get_all_telemetry(response: Response, drone_connections: Dict = Depend
             })
     
     return all_telemetry
+
 
 # METHOD 1: 
 
@@ -1012,6 +1013,7 @@ async def get_chatbot():
     with open("static/chatbot.html") as f:
         return f.read()
 
+
 # METHOD 2: 
 
 # OpenAI API Key
@@ -1026,7 +1028,6 @@ api_commands = {
     "update_drone_mode": "curl -X POST 'http://localhost:8000/update_drone_mode/{drone_id}/{mode}' -H 'Content-Type: application/json'",
     "set_mission": "curl -X POST 'http://localhost:8000/set_mission/{drone_id}?mission_name={mission_id}'"
 }
-
 class ChatCommand(BaseModel):
     command: str
 
