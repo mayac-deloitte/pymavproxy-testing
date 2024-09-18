@@ -67,19 +67,22 @@ def embed_klv_metadata(input_video, klv_metadata, output_video):
             print(f"Error during video copying: {e}")
             sys.exit(1)
 
-def stream_klv_video(output_video, rtsp_port="8554", remote_ip="localhost"):
-    """Stream the video with or without KLV metadata over RTSP using FFmpeg."""
-    rtsp_url = f"rtsp://{remote_ip}:{rtsp_port}/klvstream"
+def stream_klv_video(output_video, remote_ip = "localhost", rtsp_port="8554"):
+    """Stream the video with or without KLV metadata using FFmpeg's internal RTSP server."""
+    rtsp_url = f"rtsp://{remote_ip}:{rtsp_port}/klvstream"  # Using localhost for RTSP binding
+    
+    # Command to stream video without audio
     ffmpeg_command = [
         "ffmpeg",
         "-re",
         "-i", output_video,
-        "-c:v", "copy",
-        "-f", "rtsp",
-        rtsp_url
+        "-an",  # Disable audio stream
+        "-c:v", "copy",  # Copy video stream without re-encoding
+        "-f", "rtsp",    # Set the format to RTSP
+        rtsp_url         # Output to the local RTSP server URL
     ]
-
-    print(f"Starting RTSP stream at {rtsp_url}...")
+    
+    print(f"Starting internal RTSP server and streaming at {rtsp_url}...")
     try:
         subprocess.run(ffmpeg_command, check=True)
     except subprocess.CalledProcessError as e:
@@ -88,13 +91,13 @@ def stream_klv_video(output_video, rtsp_port="8554", remote_ip="localhost"):
 
 def main():
     # Replace these with your actual video and metadata file paths
-    input_video = "input_video.mp4"  # Path to your source video file
+    input_video = "/Users/mcohen7/Library/CloudStorage/OneDrive-Deloitte(O365D)/Documents/Defence/pymavproxy-testing/video_streaming/sample.mp4"  # Path to your source video file
     klv_metadata = None  # Path to your KLV metadata file, or set to None if no KLV is needed
     output_video_with_klv = "output_video_with_klv.mkv"  # Output file with embedded KLV metadata (or just video copy)
 
     # Set the RTSP server details
     rtsp_port = "8554"  # Default RTSP port
-    remote_ip = "localhost"  # Use 'localhost' for local streaming or replace with your machine's IP address
+    remote_ip = "locahost"
 
     # Check if FFmpeg is installed
     check_ffmpeg_installed()
@@ -108,8 +111,8 @@ def main():
         # Embed KLV metadata into the video (if it's provided)
         embed_klv_metadata(input_video, klv_metadata, output_video_with_klv)
 
-    # Stream the video with or without KLV metadata over RTSP
-    stream_klv_video(output_video_with_klv, rtsp_port, remote_ip)
+    # Stream the video with or without KLV metadata using FFmpeg's internal RTSP server
+    stream_klv_video(output_video_with_klv, remote_ip, rtsp_port)
 
 if __name__ == "__main__":
     main()
